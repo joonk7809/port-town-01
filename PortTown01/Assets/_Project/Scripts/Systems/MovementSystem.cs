@@ -20,12 +20,12 @@ namespace PortTown01.Systems
                 float dist = to.magnitude;
                 if (dist < 0.25f)
                 {
-                    // Pick a new random target within bounds (determinism: use UnityEngine.Random with a fixed seed at start)
-                    a.TargetPos = new Vector3(
-                        Random.Range(_min.x, _max.x),
-                        0f,
-                        Random.Range(_min.y, _max.y)
-                    );
+                    if (a.AllowWander)
+                    {
+                        a.TargetPos = new Vector3(
+                            Random.Range(_min.x, _max.x), 0f, Random.Range(_min.y, _max.y)
+                        );
+                    }
                     continue;
                 }
 

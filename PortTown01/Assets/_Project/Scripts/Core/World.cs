@@ -11,6 +11,10 @@ namespace PortTown01.Core
 
         public readonly List<Agent> Agents = new();
 
+        public readonly List<ResourceNode> ResourceNodes = new();
+        public readonly List<Building> Buildings = new();
+        public readonly List<Worksite> Worksites = new();
+
         public void Advance(int tickInc, float dt)
         {
             Tick += tickInc;

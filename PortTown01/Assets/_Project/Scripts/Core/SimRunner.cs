@@ -40,13 +40,16 @@ namespace PortTown01.Core
                 // Order mirrors the doc (we’ll fill more later):
                 // Input → Contracts → Work → Trade → Needs → Planner → Movement → Economy → Telemetry
                 new NeedsDecaySystem(),
+                new DemoHarvestSystem(),
                 // (Planner comes later)
                 new MovementSystem(),
                 // (Economy/Trade later)
+                new MillProcessingSystem(),
                 new TelemetrySystem()
             };
 
             BootstrapAgents(bootstrapAgents);
+            BootstrapWorld();
         }
 
         void Update()
@@ -105,5 +108,64 @@ namespace PortTown01.Core
             // Attach a tiny component to follow sim position
             go.AddComponent<AgentView>().Bind(a);
         }
+        private void BootstrapWorld()
+        {
+
+            var forest = new ResourceNode
+            {
+                Id = 0,
+                Type = NodeType.Forest,
+                Pos = new Vector3(-20f, 0f, 0f),
+                Stock = 100,
+                MaxStock = 100,
+                RegenPerSec = 0.0f
+            };
+            _world.ResourceNodes.Add(forest);
+
+            var mill = new Building
+            {
+                Id = 0,
+                Type = BuildingType.Mill,
+                Pos = new Vector3(20f, 0f, 0f),
+                Slots = 1
+            };
+            _world.Buildings.Add(mill);
+
+            _world.Worksites.Add(new Worksite
+            {
+                Id = 0,
+                NodeId = forest.Id,
+                BuildingId = null,
+                Type = WorkType.Logging,
+                StationPos = forest.Pos + new Vector3(2f, 0f, 0f),
+                InUse = false
+            });
+
+            _world.Worksites.Add(new Worksite
+            {
+                Id = 1,
+                NodeId = null,
+                BuildingId = mill.Id,
+                Type = WorkType.Milling,
+                StationPos = mill.Pos + new Vector3(-2f, 0f, 0f),
+                InUse = false
+            });
+            SpawnMarker(forest.Pos, Color.green, "Forest");
+            SpawnMarker(mill.Pos, Color.yellow, "Mill");
+
+
+
+            
+        }
+        private void SpawnMarker(Vector3 pos, Color color, string name)
+            {
+                var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                go.name = $"Marker_{name}";
+                go.transform.position = pos;
+                go.transform.localScale = new Vector3(1.2f, 1.2f, 1.2f);
+                var mr = go.GetComponent<MeshRenderer>();
+                if (mr != null) mr.material.color = color;
+            }
+
     }
 }

@@ -21,5 +21,10 @@ namespace PortTown01.Core
         public Inventory Carry = new();    // starts empty
 
 
+        // movement/interaction control
+        public bool AllowWander = true;   // when false, Movement won't pick random targets
+        public float InteractRange = 1.0f;
+
+
     }
 }
