@@ -30,6 +30,12 @@ namespace PortTown01.Systems
             int millLogs   = (world.Buildings.Count > 0) ? world.Buildings[0].Storage.Get(ItemType.Log)   : 0;
             int millPlanks = (world.Buildings.Count > 0) ? world.Buildings[0].Storage.Get(ItemType.Plank) : 0;
 
+            int bidCount = world.FoodBook.Bids.Count(o => o.Qty > 0);
+            int askCount = world.FoodBook.Asks.Count(o => o.Qty > 0);
+            int bestBid  = world.FoodBook.Bids.Where(o => o.Qty > 0).Select(o => o.UnitPrice).DefaultIfEmpty(0).Max();
+            int bestAsk  = world.FoodBook.Asks.Where(o => o.Qty > 0).Select(o => o.UnitPrice).DefaultIfEmpty(0).Min();
+
+
             var vendor = world.Agents.FirstOrDefault(a => a.IsVendor);
             int vendorFood  = vendor != null ? vendor.Carry.Get(ItemType.Food) : 0;
             int vendorCoins = vendor != null ? vendor.Coins : 0;
@@ -39,7 +45,8 @@ namespace PortTown01.Systems
                       $"avgFood={avgFood:F1} avgRest={avgRest:F1} items={totalItems}" +
                       $" forestStock={forestStock} millLogs={millLogs}" +
                       $" forestStock={forestStock} millLogs={millLogs} millPlanks={millPlanks}" +
-                      $" vendorFood={vendorFood} vendorCoins={vendorCoins}");
+                      $" vendorFood={vendorFood} vendorCoins={vendorCoins}" +
+                      $" bids={bidCount} asks={askCount} bestBid={bestBid} bestAsk={bestAsk}");
  
         }
     }

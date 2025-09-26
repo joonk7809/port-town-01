@@ -43,6 +43,7 @@ namespace PortTown01.Core
                 new DemoHarvestSystem(),
                 new FoodTradeSystem(),
                 new MovementSystem(),
+                new OrderMatchingSystem(),
                 new EatingSystem(),
                 new MillProcessingSystem(),
                 new TelemetrySystem()

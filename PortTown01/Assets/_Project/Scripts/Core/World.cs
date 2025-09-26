@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using PortTown01.Econ;  
 using UnityEngine;
 
 namespace PortTown01.Core
@@ -10,10 +11,11 @@ namespace PortTown01.Core
         public float SimTime { get; private set; } = 0f; // seconds
 
         public readonly List<Agent> Agents = new();
-
         public readonly List<ResourceNode> ResourceNodes = new();
         public readonly List<Building> Buildings = new();
         public readonly List<Worksite> Worksites = new();
+
+        public readonly OrderBook FoodBook = new();
 
         public void Advance(int tickInc, float dt)
         {
