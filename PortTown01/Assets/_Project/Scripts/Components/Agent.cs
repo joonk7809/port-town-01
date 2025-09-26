@@ -20,6 +20,8 @@ namespace PortTown01.Core
         public float CapacityKg = 20f;     // simple cap for week 1
         public Inventory Carry = new();    // starts empty
 
+        public int Coins = 100;          // simple integer money
+        public bool IsVendor = false;
 
         // movement/interaction control
         public bool AllowWander = true;   // when false, Movement won't pick random targets

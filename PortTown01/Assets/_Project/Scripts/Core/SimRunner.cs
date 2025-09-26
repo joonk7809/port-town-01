@@ -41,9 +41,9 @@ namespace PortTown01.Core
                 // Input → Contracts → Work → Trade → Needs → Planner → Movement → Economy → Telemetry
                 new NeedsDecaySystem(),
                 new DemoHarvestSystem(),
-                // (Planner comes later)
+                new FoodTradeSystem(),
                 new MovementSystem(),
-                // (Economy/Trade later)
+                new EatingSystem(),
                 new MillProcessingSystem(),
                 new TelemetrySystem()
             };
@@ -152,6 +152,21 @@ namespace PortTown01.Core
             });
             SpawnMarker(forest.Pos, Color.green, "Forest");
             SpawnMarker(mill.Pos, Color.yellow, "Mill");
+
+            var vendor = new Agent
+            {
+                Id = _world.Agents.Count,                  // unique id after existing agents
+                Pos = new Vector3(0f, 0f, -15f),
+                TargetPos = new Vector3(0f, 0f, -15f),
+                SpeedMps = 0f,
+                IsVendor = true,
+                Coins = 0,
+                AllowWander = false
+            };
+            vendor.Carry.Add(ItemType.Food, 200);         // initial stock to sell
+            _world.Agents.Add(vendor);
+            SpawnView(vendor);
+            SpawnMarker(vendor.Pos, Color.red, "Market");
 
 
 

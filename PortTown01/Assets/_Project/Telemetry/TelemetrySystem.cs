@@ -30,11 +30,16 @@ namespace PortTown01.Systems
             int millLogs   = (world.Buildings.Count > 0) ? world.Buildings[0].Storage.Get(ItemType.Log)   : 0;
             int millPlanks = (world.Buildings.Count > 0) ? world.Buildings[0].Storage.Get(ItemType.Plank) : 0;
 
+            var vendor = world.Agents.FirstOrDefault(a => a.IsVendor);
+            int vendorFood  = vendor != null ? vendor.Carry.Get(ItemType.Food) : 0;
+            int vendorCoins = vendor != null ? vendor.Coins : 0;
+
 
             Debug.Log($"[TEL] t={world.SimTime:F1}s tick={world.Tick} agents={n} " +
                       $"avgFood={avgFood:F1} avgRest={avgRest:F1} items={totalItems}" +
                       $" forestStock={forestStock} millLogs={millLogs}" +
-                      $" forestStock={forestStock} millLogs={millLogs} millPlanks={millPlanks}");
+                      $" forestStock={forestStock} millLogs={millLogs} millPlanks={millPlanks}" +
+                      $" vendorFood={vendorFood} vendorCoins={vendorCoins}");
  
         }
     }
