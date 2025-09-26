@@ -17,6 +17,9 @@ namespace PortTown01.Core
         public float Status = 50f;
         public float Security = 50f;
 
+        public float CapacityKg = 20f;     // simple cap for week 1
+        public Inventory Carry = new();    // starts empty
+
 
     }
 }

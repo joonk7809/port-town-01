@@ -24,7 +24,11 @@ namespace PortTown01.Systems
             float avgFood = world.Agents.Average(a => a.Food);
             float avgRest = world.Agents.Average(a => a.Rest);
 
-            Debug.Log($"[TEL] t={world.SimTime:F1}s tick={world.Tick} agents={n} avgFood={avgFood:F1} avgRest={avgRest:F1}");
+             int totalItems = world.Agents.Sum(a => a.Carry.Items.Values.Sum());
+
+            Debug.Log($"[TEL] t={world.SimTime:F1}s tick={world.Tick} agents={n} " +
+                      $"avgFood={avgFood:F1} avgRest={avgRest:F1} items={totalItems}");
+
         }
     }
 }
