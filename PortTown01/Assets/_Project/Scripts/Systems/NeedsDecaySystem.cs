@@ -8,8 +8,8 @@ namespace PortTown01.Systems
         public string Name => "NeedsDecay";
 
         // ~7.2 pts/min Food (=> ~72 over a 600s day), ~1.2 pts/min Rest
-        const float FOOD_DECAY_PER_SEC = 0.12f;
-        const float REST_DECAY_PER_SEC = 0.02f;
+        const float FOOD_DECAY_PER_SEC = 0.20f;
+        const float REST_DECAY_PER_SEC = 0.10f;
 
         public void Tick(World world, int _, float dt)
         {
