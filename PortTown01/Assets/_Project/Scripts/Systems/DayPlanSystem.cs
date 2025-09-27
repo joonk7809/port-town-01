@@ -10,7 +10,7 @@ namespace PortTown01.Systems
 
         // 10 minutes = 1 sim day; tweak to taste
         const float DAY_SECONDS = 600f;
-        const float START_Hour = 9f;
+        const float START_HOUR = 9f;
 
         // Work 08:00–18:00, Sleep 22:00–06:00, else Leisure
         static bool IsWork(float t)  { return In(t, 8, 18); }

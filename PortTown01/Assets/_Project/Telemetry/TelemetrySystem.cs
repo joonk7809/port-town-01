@@ -43,13 +43,14 @@ namespace PortTown01.Systems
             int vendorCoins = vendor != null ? vendor.Coins : 0;
 
 
-            Debug.Log($"[TEL] t={world.SimTime:F1}s tick={world.Tick} agents={n} " +
-                      $"avgFood={avgFood:F1} avgRest={avgRest:F1} items={totalItems}" +
-                      $" forestStock={forestStock} millLogs={millLogs}" +
-                      $" forestStock={forestStock} millLogs={millLogs} millPlanks={millPlanks}" +
-                      $" vendorFood={vendorFood} vendorCoins={vendorCoins}" +
-                      $" bids={bidCount} asks={askCount} bestBid={bestBid} bestAsk={bestAsk}" +
-                      $"loggers=${nLoggers}");
+            Debug.Log(
+                $"[TEL] t={world.SimTime:F1}s tick={world.Tick} agents={n} " +
+                $"avgFood={avgFood:F1} avgRest={avgRest:F1} items={totalItems} " +
+                $"forestStock={forestStock} millLogs={millLogs} millPlanks={millPlanks} " +
+                $"vendorFood={vendorFood} vendorCoins={vendorCoins} " +
+                $"bids={bidCount} asks={askCount} bestBid={bestBid} bestAsk={bestAsk} " +
+                $"loggers={nLoggers}");
+
  
         }
     }

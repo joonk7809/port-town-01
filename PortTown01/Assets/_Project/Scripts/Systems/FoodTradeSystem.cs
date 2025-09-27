@@ -5,16 +5,17 @@ using PortTown01.Econ;
 
 namespace PortTown01.Systems
 {
-    // Queue-like stall: arrive -> acquire stall -> wait ServiceDurationSec -> post 1-unit bid -> release
+    // Queue-like stall with timed checkout. During Work, only buy if *critically* hungry.
     public class FoodTradeSystem : ISimSystem
     {
         public string Name => "FoodTrade_Post";
 
-        private const int FOOD_PRICE  = 5;    // vendor ask price
-        private const float BUY_TRIG  = 50f;  // buy if Food need < this
-        private const float ARRIVE_F  = 1.2f; // arrival multiplier vs InteractRange
+        private const int FOOD_PRICE    = 5;
+        private const float BUY_TRIG    = 50f;  // Leisure threshold
+        private const float CRIT_TRIG   = 20f;  // Work threshold (only break if below this)
+        private const float ARRIVE_F    = 1.2f; // arrival multiplier vs InteractRange
 
-        private Worksite _market;             // cached market stall
+        private Worksite _market;
 
         public void Tick(World world, int _, float dt)
         {
@@ -24,12 +25,12 @@ namespace PortTown01.Systems
             if (_market == null)
                 _market = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.Trading);
 
-            // --- Vendor maintains a standing ask (escrow the items) ---
+            // Vendor: maintain standing ask (escrow items)
             int vendorStock = vendor.Carry.Get(ItemType.Food);
             bool hasOpenAsk = world.FoodBook.Asks.Any(o => o.AgentId == vendor.Id && o.Qty > 0);
             if (!hasOpenAsk && vendorStock > 0)
             {
-                vendor.Carry.TryRemove(ItemType.Food, vendorStock); // move to escrow
+                vendor.Carry.TryRemove(ItemType.Food, vendorStock);
                 world.FoodBook.Asks.Add(new Offer
                 {
                     Id = world.FoodBook.NextOfferId++,
@@ -44,17 +45,20 @@ namespace PortTown01.Systems
                 });
             }
 
-            // No stall? fall back to vendor pos
             var stallPos = (_market != null) ? _market.StationPos : vendor.Pos;
 
             foreach (var a in world.Agents)
             {
                 if (a.IsVendor) continue;
 
-                bool needsFood = (a.Food < BUY_TRIG) && (a.Carry.Get(ItemType.Food) == 0);
-                if (!needsFood) continue;
+                // Decide threshold based on phase
+                bool onShift = a.Phase == DayPhase.Work;
+                float thresh = onShift ? CRIT_TRIG : BUY_TRIG;
 
-                // Step 1: walk to stall
+                bool needsFood = (a.Food < thresh) && (a.Carry.Get(ItemType.Food) == 0);
+                if (!needsFood) continue; // do NOT hijack workers unless critical
+
+                // Walk to stall
                 float arriveDist = a.InteractRange * ARRIVE_F;
                 if (Vector3.Distance(a.Pos, stallPos) > arriveDist)
                 {
@@ -63,10 +67,9 @@ namespace PortTown01.Systems
                     continue;
                 }
 
-                // If there is a stall, enforce single-occupant + timed checkout
+                // If we have a stall, enforce single-occupant timed checkout
                 if (_market != null)
                 {
-                    // Acquire if free
                     if (_market.OccupantId is null)
                     {
                         _market.OccupantId = a.Id;
@@ -74,25 +77,23 @@ namespace PortTown01.Systems
                         _market.ServiceRemainingSec = Mathf.Max(0.01f, _market.ServiceDurationSec);
                     }
 
-                    // If this agent is NOT the occupant, wait your turn
                     if (_market.OccupantId != a.Id)
-                        continue;
+                        continue; // wait your turn
 
-                    // This agent IS the occupant: tick the checkout timer
+                    // Occupant: tick checkout
                     _market.ServiceRemainingSec -= dt;
                     if (_market.ServiceRemainingSec > 0f)
                     {
-                        // hold position while checking out
                         a.AllowWander = false;
                         a.TargetPos = stallPos;
                         continue;
                     }
 
-                    // Timer finished → post ONE 1-unit bid if none open yet
+                    // Post one 1-unit bid if none open
                     bool hasOpenBid = world.FoodBook.Bids.Any(o => o.AgentId == a.Id && o.Qty > 0);
                     if (!hasOpenBid && a.Coins >= FOOD_PRICE)
                     {
-                        a.Coins -= FOOD_PRICE; // escrow coins
+                        a.Coins -= FOOD_PRICE; // escrow
                         world.FoodBook.Bids.Add(new Offer
                         {
                             Id = world.FoodBook.NextOfferId++,
@@ -107,16 +108,16 @@ namespace PortTown01.Systems
                         });
                     }
 
-                    // Release stall for the next person in line
+                    // Release stall
                     _market.OccupantId = null;
                     _market.InUse = false;
                     _market.ServiceRemainingSec = 0f;
 
-                    a.AllowWander = true; // resume other behavior
+                    a.AllowWander = true;
                     continue;
                 }
 
-                // If we don't have a formal stall, just require proximity (fallback)
+                // Fallback (no stall defined): proximity-only
                 bool hasOpen = world.FoodBook.Bids.Any(o => o.AgentId == a.Id && o.Qty > 0);
                 if (!hasOpen && a.Coins >= FOOD_PRICE)
                 {
