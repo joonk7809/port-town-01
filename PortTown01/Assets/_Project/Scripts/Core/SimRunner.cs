@@ -25,6 +25,9 @@ namespace PortTown01.Core
         private float _accum;
         private World _world;
         private List<ISimSystem> _pipeline;
+        
+        public World WorldRef => _world;   // read-only access for other systems/HUD
+
 
         // ---------- UNITY LIFECYCLE ----------
         void Awake()
@@ -37,7 +40,7 @@ namespace PortTown01.Core
             _world = new World();
             _pipeline = new List<ISimSystem>
             {
-                // Order mirrors the doc (we’ll fill more later):
+                
                 // Input → Contracts → Work → Trade → Needs → Planner → Movement → Economy → Telemetry
                 new NeedsDecaySystem(),
                 new DayPlanSystem(),

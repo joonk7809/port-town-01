@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using PortTown01.Core;
+using System.Linq;
 
 namespace PortTown01.Systems
 {
@@ -9,6 +10,9 @@ namespace PortTown01.Systems
     public class DemoHarvestSystem : ISimSystem
     {
         public string Name => "DemoHarvest";
+
+        private const int WAGE_PER_LOG = 2; // coins per log delivered (tune)
+
 
         private enum Phase { ToForest, Harvest, ToMill, Store }
         private class State { public Phase P; public float HarvestTimer; }
@@ -95,8 +99,27 @@ namespace PortTown01.Systems
                             a.Carry.TryRemove(ItemType.Log, qty);
                             a.Carry.Kg -= qty * LOG_KG;
                             _mill.Storage.Add(ItemType.Log, qty);
+
+                            // --- PAY PIECE-RATE ON DELIVERY ---
+                            var k = world.Contracts.FirstOrDefault(c =>
+                                c.State == ContractState.Active &&
+                                c.Type  == ContractType.Employment &&
+                                c.EmployeeId == a.Id);
+
+                            if (k != null)
+                            {
+                                var boss = world.Agents.FirstOrDefault(x => x.Id == k.EmployerId);
+                                if (boss != null && boss.Coins > 0)
+                                {
+                                    int owed = WAGE_PER_LOG * qty;
+                                    int pay  = Mathf.Min(owed, boss.Coins);
+                                    boss.Coins -= pay;
+                                    a.Coins    += pay;
+                                    // (optional) accumulate stats in k.AccruedSinceLastPay += pay;
+                                }
+                            }
                         }
-                        // loop
+                        
                         s.P = Phase.ToForest;
                         break;
                 }
