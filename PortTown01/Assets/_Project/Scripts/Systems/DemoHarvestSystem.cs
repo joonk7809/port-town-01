@@ -40,8 +40,8 @@ namespace PortTown01.Systems
             int driven = 0;
             foreach (var a in world.Agents)
             {
-                if (driven >= AGENTS_TO_DRIVE) break;
-                driven++;
+                if (a.Role != JobRole.Logger) continue;
+                
 
                 if (!_state.TryGetValue(a.Id, out var s))
                     _state[a.Id] = s = new State { P = Phase.ToForest, HarvestTimer = 0f };

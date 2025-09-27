@@ -40,6 +40,7 @@ namespace PortTown01.Core
                 // Order mirrors the doc (we’ll fill more later):
                 // Input → Contracts → Work → Trade → Needs → Planner → Movement → Economy → Telemetry
                 new NeedsDecaySystem(),
+                new EmploymentSystem(),
                 new DemoHarvestSystem(),
                 new FoodTradeSystem(),
                 new MovementSystem(),
@@ -189,6 +190,19 @@ namespace PortTown01.Core
                 ServiceRemainingSec = 0f,
                 ServiceDurationSec = 1.2f
             });
+
+            var boss = new Agent
+            {
+                Id = _world.Agents.Count,
+                Pos = new Vector3(22f, 0f, 0f),
+                TargetPos = new Vector3(22f, 0f, 0f),
+                SpeedMps = 0f,
+                Coins = 5000,
+                AllowWander = false
+            };
+            _world.Agents.Add(boss);
+            SpawnView(boss);
+            SpawnMarker(boss.Pos, new Color(1.0f, 0.5f, 0f), "Boss");
         }
 
         private void SpawnMarker(Vector3 pos, Color color, string name)
@@ -200,6 +214,8 @@ namespace PortTown01.Core
             var mr = go.GetComponent<MeshRenderer>();
             if (mr != null) mr.material.color = color;
         }
+
+        
 
 
 

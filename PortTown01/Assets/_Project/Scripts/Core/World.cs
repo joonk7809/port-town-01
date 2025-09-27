@@ -17,6 +17,9 @@ namespace PortTown01.Core
 
         public readonly OrderBook FoodBook = new();
 
+        public readonly List<Contract> Contracts = new();
+        public int NextContractId = 1;
+
         public void Advance(int tickInc, float dt)
         {
             Tick += tickInc;

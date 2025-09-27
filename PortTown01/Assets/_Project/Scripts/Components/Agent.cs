@@ -27,6 +27,12 @@ namespace PortTown01.Core
         public bool AllowWander = true;   // when false, Movement won't pick random targets
         public float InteractRange = 1.0f;
 
+        //Jobs
+        public JobRole Role = JobRole.None;   // e.g., Logger
+        public int? EmployerId = null;        // employer agent id
+        public int? JobWorksiteId = null;     // where they work (e.g., Logging site)
+        public int? ContractId = null;        // employment contract id
+
 
     }
 }
