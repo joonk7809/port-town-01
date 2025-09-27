@@ -5,8 +5,7 @@ using PortTown01.Econ;
 
 namespace PortTown01.Systems
 {
-    // Agents must (a) walk to the market stall, (b) acquire the single-occupant Trading worksite,
-    // then (c) post exactly one 1-unit bid (escrow coins). Vendor keeps a standing ask.
+    // Queue-like stall: arrive -> acquire stall -> wait ServiceDurationSec -> post 1-unit bid -> release
     public class FoodTradeSystem : ISimSystem
     {
         public string Name => "FoodTrade_Post";
@@ -22,17 +21,16 @@ namespace PortTown01.Systems
             var vendor = world.Agents.FirstOrDefault(a => a.IsVendor);
             if (vendor == null) return;
 
-            // cache the stall
             if (_market == null)
                 _market = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.Trading);
 
-            // --- Vendor: standing ask with item escrow ---
+            // --- Vendor maintains a standing ask (escrow the items) ---
             int vendorStock = vendor.Carry.Get(ItemType.Food);
             bool hasOpenAsk = world.FoodBook.Asks.Any(o => o.AgentId == vendor.Id && o.Qty > 0);
             if (!hasOpenAsk && vendorStock > 0)
             {
-                vendor.Carry.TryRemove(ItemType.Food, vendorStock); // escrow items now
-                var ask = new Offer
+                vendor.Carry.TryRemove(ItemType.Food, vendorStock); // move to escrow
+                world.FoodBook.Asks.Add(new Offer
                 {
                     Id = world.FoodBook.NextOfferId++,
                     AgentId = vendor.Id,
@@ -43,19 +41,20 @@ namespace PortTown01.Systems
                     PostTick = world.Tick,
                     ExpiryTick = -1,
                     EscrowItems = vendorStock
-                };
-                world.FoodBook.Asks.Add(ask);
+                });
             }
+
+            // No stall? fall back to vendor pos
+            var stallPos = (_market != null) ? _market.StationPos : vendor.Pos;
 
             foreach (var a in world.Agents)
             {
                 if (a.IsVendor) continue;
 
-                // only hungry + no Food item
-                if (!(a.Food < BUY_TRIG && a.Carry.Get(ItemType.Food) == 0)) continue;
+                bool needsFood = (a.Food < BUY_TRIG) && (a.Carry.Get(ItemType.Food) == 0);
+                if (!needsFood) continue;
 
-                // 1) walk to stall
-                var stallPos = _market != null ? _market.StationPos : vendor.Pos;
+                // Step 1: walk to stall
                 float arriveDist = a.InteractRange * ARRIVE_F;
                 if (Vector3.Distance(a.Pos, stallPos) > arriveDist)
                 {
@@ -64,27 +63,65 @@ namespace PortTown01.Systems
                     continue;
                 }
 
-                // 2) acquire stall (single occupant)
+                // If there is a stall, enforce single-occupant + timed checkout
                 if (_market != null)
                 {
+                    // Acquire if free
                     if (_market.OccupantId is null)
                     {
                         _market.OccupantId = a.Id;
                         _market.InUse = true;
+                        _market.ServiceRemainingSec = Mathf.Max(0.01f, _market.ServiceDurationSec);
                     }
+
+                    // If this agent is NOT the occupant, wait your turn
                     if (_market.OccupantId != a.Id)
+                        continue;
+
+                    // This agent IS the occupant: tick the checkout timer
+                    _market.ServiceRemainingSec -= dt;
+                    if (_market.ServiceRemainingSec > 0f)
                     {
-                        // someone else is occupying; wait in place
+                        // hold position while checking out
+                        a.AllowWander = false;
+                        a.TargetPos = stallPos;
                         continue;
                     }
+
+                    // Timer finished → post ONE 1-unit bid if none open yet
+                    bool hasOpenBid = world.FoodBook.Bids.Any(o => o.AgentId == a.Id && o.Qty > 0);
+                    if (!hasOpenBid && a.Coins >= FOOD_PRICE)
+                    {
+                        a.Coins -= FOOD_PRICE; // escrow coins
+                        world.FoodBook.Bids.Add(new Offer
+                        {
+                            Id = world.FoodBook.NextOfferId++,
+                            AgentId = a.Id,
+                            Item = ItemType.Food,
+                            Side = Side.Buy,
+                            Qty = 1,
+                            UnitPrice = FOOD_PRICE,
+                            PostTick = world.Tick,
+                            ExpiryTick = -1,
+                            EscrowCoins = FOOD_PRICE
+                        });
+                    }
+
+                    // Release stall for the next person in line
+                    _market.OccupantId = null;
+                    _market.InUse = false;
+                    _market.ServiceRemainingSec = 0f;
+
+                    a.AllowWander = true; // resume other behavior
+                    continue;
                 }
 
-                // 3) post ONE bid if you don't already have one
-                bool hasOpenBid = world.FoodBook.Bids.Any(o => o.AgentId == a.Id && o.Qty > 0);
-                if (!hasOpenBid && a.Coins >= FOOD_PRICE)
+                // If we don't have a formal stall, just require proximity (fallback)
+                bool hasOpen = world.FoodBook.Bids.Any(o => o.AgentId == a.Id && o.Qty > 0);
+                if (!hasOpen && a.Coins >= FOOD_PRICE)
                 {
-                    a.Coins -= FOOD_PRICE; // escrow coins
-                    var bid = new Offer
+                    a.Coins -= FOOD_PRICE;
+                    world.FoodBook.Bids.Add(new Offer
                     {
                         Id = world.FoodBook.NextOfferId++,
                         AgentId = a.Id,
@@ -95,18 +132,8 @@ namespace PortTown01.Systems
                         PostTick = world.Tick,
                         ExpiryTick = -1,
                         EscrowCoins = FOOD_PRICE
-                    };
-                    world.FoodBook.Bids.Add(bid);
+                    });
                 }
-
-                // release the stall so next buyer can step up
-                if (_market != null && _market.OccupantId == a.Id)
-                {
-                    _market.OccupantId = null;
-                    _market.InUse = false;
-                }
-
-                a.AllowWander = true; // resume other behavior
             }
         }
     }

@@ -185,7 +185,7 @@ namespace PortTown01.Core
                 Type = WorkType.Trading,
                 StationPos = vendor.Pos + new Vector3(0.0f, 0f, 1.0f),
                 InUse = false,
-                OccupantId = null
+                OccupantId = null,
                 ServiceRemainingSec = 0f,
                 ServiceDurationSec = 1.2f
             });
