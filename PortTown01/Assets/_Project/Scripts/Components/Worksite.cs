@@ -10,5 +10,9 @@ namespace PortTown01.Core
         public WorkType Type;
         public Vector3 StationPos;
         public bool InUse;        // single station for now
+        public int? OccupantId; 
+
+        public float ServiceRemainingSec = 0f;
+        public float ServiceDurationSec = 1.2f;
     }
 }

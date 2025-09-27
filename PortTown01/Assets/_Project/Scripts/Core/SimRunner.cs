@@ -111,7 +111,7 @@ namespace PortTown01.Core
         }
         private void BootstrapWorld()
         {
-
+            // 1) Forest node
             var forest = new ResourceNode
             {
                 Id = 0,
@@ -119,10 +119,11 @@ namespace PortTown01.Core
                 Pos = new Vector3(-20f, 0f, 0f),
                 Stock = 100,
                 MaxStock = 100,
-                RegenPerSec = 0.0f
+                RegenPerSec = 0f
             };
             _world.ResourceNodes.Add(forest);
 
+            // 2) Mill building
             var mill = new Building
             {
                 Id = 0,
@@ -132,6 +133,7 @@ namespace PortTown01.Core
             };
             _world.Buildings.Add(mill);
 
+            // 3) Worksites: Logging + Milling
             _world.Worksites.Add(new Worksite
             {
                 Id = 0,
@@ -139,7 +141,8 @@ namespace PortTown01.Core
                 BuildingId = null,
                 Type = WorkType.Logging,
                 StationPos = forest.Pos + new Vector3(2f, 0f, 0f),
-                InUse = false
+                InUse = false,
+                OccupantId = null
             });
 
             _world.Worksites.Add(new Worksite
@@ -149,14 +152,18 @@ namespace PortTown01.Core
                 BuildingId = mill.Id,
                 Type = WorkType.Milling,
                 StationPos = mill.Pos + new Vector3(-2f, 0f, 0f),
-                InUse = false
+                InUse = false,
+                OccupantId = null
             });
+
+            // 4) Visual markers
             SpawnMarker(forest.Pos, Color.green, "Forest");
             SpawnMarker(mill.Pos, Color.yellow, "Mill");
 
+            // 5) Vendor agent (market)
             var vendor = new Agent
             {
-                Id = _world.Agents.Count,                  // unique id after existing agents
+                Id = _world.Agents.Count,
                 Pos = new Vector3(0f, 0f, -15f),
                 TargetPos = new Vector3(0f, 0f, -15f),
                 SpeedMps = 0f,
@@ -164,24 +171,39 @@ namespace PortTown01.Core
                 Coins = 0,
                 AllowWander = false
             };
-            vendor.Carry.Add(ItemType.Food, 200);         // initial stock to sell
+            vendor.Carry.Add(ItemType.Food, 200);
             _world.Agents.Add(vendor);
             SpawnView(vendor);
             SpawnMarker(vendor.Pos, Color.red, "Market");
 
-
-
-            
-        }
-        private void SpawnMarker(Vector3 pos, Color color, string name)
+            // 6) Trading worksite at vendor (single occupant)
+            _world.Worksites.Add(new Worksite
             {
-                var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                go.name = $"Marker_{name}";
-                go.transform.position = pos;
-                go.transform.localScale = new Vector3(1.2f, 1.2f, 1.2f);
-                var mr = go.GetComponent<MeshRenderer>();
-                if (mr != null) mr.material.color = color;
-            }
+                Id = 2,
+                NodeId = null,
+                BuildingId = null,
+                Type = WorkType.Trading,
+                StationPos = vendor.Pos + new Vector3(0.0f, 0f, 1.0f),
+                InUse = false,
+                OccupantId = null
+                ServiceRemainingSec = 0f,
+                ServiceDurationSec = 1.2f
+            });
+        }
+
+        private void SpawnMarker(Vector3 pos, Color color, string name)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            go.name = $"Marker_{name}";
+            go.transform.position = pos;
+            go.transform.localScale = new Vector3(1.2f, 1.2f, 1.2f);
+            var mr = go.GetComponent<MeshRenderer>();
+            if (mr != null) mr.material.color = color;
+        }
+
+
+
+        
 
     }
 }
