@@ -27,6 +27,9 @@ namespace PortTown01.Core
         public bool AllowWander = true;   // when false, Movement won't pick random targets
         public float InteractRange = 1.0f;
 
+        public UnityEngine.Vector3 HomePos;
+        public DayPhase Phase = DayPhase.Leisure;
+
         //Jobs
         public JobRole Role = JobRole.None;   // e.g., Logger
         public int? EmployerId = null;        // employer agent id

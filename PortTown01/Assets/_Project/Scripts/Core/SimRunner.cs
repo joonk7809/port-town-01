@@ -44,6 +44,7 @@ namespace PortTown01.Core
                 new DemoHarvestSystem(),
                 new FoodTradeSystem(),
                 new MovementSystem(),
+                new SleepSystem(),
                 new OrderMatchingSystem(),
                 new EatingSystem(),
                 new MillProcessingSystem(),
@@ -95,9 +96,12 @@ namespace PortTown01.Core
                     SpeedMps = Random.Range(1.2f, 2.0f)
                 };
                 _world.Agents.Add(a);
+                a.HomePos = new Vector3(UnityEngine.Random.Range(-6f, 6f), 0f, UnityEngine.Random.Range(14f, 24f));
 
                 // Optional: spawn a tiny visual so you can see motion
                 SpawnView(a);
+                SpawnMarker(a.HomePos, new Color(0.4f,0.4f,1f,0.6f), $"Home_{a.Id}");
+
             }
         }
 

@@ -41,6 +41,7 @@ namespace PortTown01.Systems
             foreach (var a in world.Agents)
             {
                 if (a.Role != JobRole.Logger) continue;
+                if (a.Phase != DayPhase.Work) { a.AllowWander = true; continue; }
                 
 
                 if (!_state.TryGetValue(a.Id, out var s))

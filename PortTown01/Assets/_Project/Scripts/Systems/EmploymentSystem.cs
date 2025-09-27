@@ -22,7 +22,10 @@ namespace PortTown01.Systems
             if (_logging == null)
                 _logging = world.Worksites.FirstOrDefault(ws => ws.Type == JobSiteType());
             if (_boss == null)
-                _boss = world.Agents.OrderByDescending(a => a.Coins).FirstOrDefault(a => a.SpeedMps == 0f && a.AllowWander == false && a.IsVendor == false);
+                _boss = world.Agents
+                    .Where(a => !a.IsVendor)
+                    .OrderByDescending(a => a.Coins)
+                    .FirstOrDefault();
 
             if (_logging == null || _boss == null) return;
 

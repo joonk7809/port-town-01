@@ -25,6 +25,8 @@ namespace PortTown01.Systems
             float avgRest = world.Agents.Average(a => a.Rest);
 
             int totalItems = world.Agents.Sum(a => a.Carry.Items.Values.Sum());
+            int nLoggers = world.Agents.Count(a => a.Role == PortTown01.Core.JobRole.Logger);
+
 
             int forestStock = world.ResourceNodes.Count > 0 ? world.ResourceNodes[0].Stock : 0;
             int millLogs   = (world.Buildings.Count > 0) ? world.Buildings[0].Storage.Get(ItemType.Log)   : 0;
@@ -46,7 +48,8 @@ namespace PortTown01.Systems
                       $" forestStock={forestStock} millLogs={millLogs}" +
                       $" forestStock={forestStock} millLogs={millLogs} millPlanks={millPlanks}" +
                       $" vendorFood={vendorFood} vendorCoins={vendorCoins}" +
-                      $" bids={bidCount} asks={askCount} bestBid={bestBid} bestAsk={bestAsk}");
+                      $" bids={bidCount} asks={askCount} bestBid={bestBid} bestAsk={bestAsk}" +
+                      $"loggers=${nLoggers}");
  
         }
     }
