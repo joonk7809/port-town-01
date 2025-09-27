@@ -40,6 +40,7 @@ namespace PortTown01.Core
                 // Order mirrors the doc (we’ll fill more later):
                 // Input → Contracts → Work → Trade → Needs → Planner → Movement → Economy → Telemetry
                 new NeedsDecaySystem(),
+                new DayPlanSystem(),
                 new EmploymentSystem(),
                 new DemoHarvestSystem(),
                 new FoodTradeSystem(),

@@ -3,13 +3,12 @@ using UnityEngine;
 
 namespace PortTown01.Systems
 {
-    // If agent has Food item and is below a target, consume 1 to restore need.
     public class EatingSystem : ISimSystem
     {
         public string Name => "Eating";
 
-        private const float EAT_IF_BELOW = 70f;  // start eating under this
-        private const float EAT_AMOUNT   = 30f;  // need restored per item
+        private const float EAT_IF_BELOW = 65f; // was 70
+        private const float EAT_AMOUNT   = 45f; // was 30
 
         public void Tick(World world, int _, float dt)
         {

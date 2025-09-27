@@ -7,9 +7,9 @@ namespace PortTown01.Systems
     {
         public string Name => "NeedsDecay";
 
-        // per-second decay (tweak-friendly)
-        const float FOOD_DECAY_PER_SEC = 0.05f; // ~3 pts/min
-        const float REST_DECAY_PER_SEC = 0.02f; // ~1.2 pts/min
+        // ~7.2 pts/min Food (=> ~72 over a 600s day), ~1.2 pts/min Rest
+        const float FOOD_DECAY_PER_SEC = 0.12f;
+        const float REST_DECAY_PER_SEC = 0.02f;
 
         public void Tick(World world, int _, float dt)
         {

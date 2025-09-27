@@ -10,10 +10,11 @@ namespace PortTown01.Systems
     {
         public string Name => "FoodTrade_Post";
 
-        private const int FOOD_PRICE    = 5;
-        private const float BUY_TRIG    = 50f;  // Leisure threshold
-        private const float CRIT_TRIG   = 20f;  // Work threshold (only break if below this)
-        private const float ARRIVE_F    = 1.2f; // arrival multiplier vs InteractRange
+        private const int   FOOD_PRICE = 5;
+        private const float BUY_TRIG   = 55f; // leisure/evening shopping kicks in sooner
+        private const float CRIT_TRIG  = 28f; // workers stay on shift unless quite hungry
+        private const float ARRIVE_F   = 1.2f;
+
 
         private Worksite _market;
 
