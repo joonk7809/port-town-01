@@ -1,9 +1,13 @@
 using System.Linq;
+using UnityEngine;            // for Mathf
 using PortTown01.Core;
 using PortTown01.Econ;
 
 namespace PortTown01.Systems
 {
+    // Price–time priority matcher with capacity-aware delivery.
+    // - If buyer can't carry the full cross, we trade the largest partial that fits.
+    // - If nothing fits, we cancel the bid and refund its escrow.
     public class OrderMatchingSystem : ISimSystem
     {
         public string Name => "OrderMatch";
@@ -28,51 +32,77 @@ namespace PortTown01.Systems
                 var b = bids[bi];
                 var a = asks[ai];
 
-                if (b.UnitPrice < a.UnitPrice) break; // no cross
+                // No price cross → stop
+                if (b.UnitPrice < a.UnitPrice) break;
 
-                int tradeQty = System.Math.Min(b.Qty, a.Qty);
-                if (tradeQty <= 0) break;
-
-                // --- settle using escrow ---
-                // Seller gets buyer's escrow coins; Buyer gets seller's escrow items.
-                int price = a.UnitPrice; // pay ask (could also do midpoint/last)
-                int coinsToSeller = price * tradeQty;
-
-                // Safety rails: ensure escrows are sufficient
-                if (b.EscrowCoins < coinsToSeller || a.EscrowItems < tradeQty)
-                {
-                    // If broken invariants, cancel what’s broken and continue
-                    b.Qty = 0; b.EscrowCoins = 0;
-                    a.Qty = 0; a.EscrowItems = 0;
-                    bi++; ai++;
-                    continue;
-                }
+                // Max possible by open qty
+                int maxCrossQty = System.Math.Min(b.Qty, a.Qty);
+                if (maxCrossQty <= 0) break;
 
                 var buyer  = world.Agents.First(x => x.Id == b.AgentId);
                 var seller = world.Agents.First(x => x.Id == a.AgentId);
 
-                // Transfer coins from bid escrow to seller wallet
+                // ---- 6C.4 capacity-aware settlement ----
+                int price = a.UnitPrice;
+
+                // Limit by escrows (coins/items)
+                int byCoins = (price > 0) ? (b.EscrowCoins / price) : maxCrossQty; // how many units buyer can afford from escrow
+                int byAskEscrow = a.EscrowItems;                                   // how many units seller has escrowed
+                int qtyByEscrow = System.Math.Min(maxCrossQty, System.Math.Min(byCoins, byAskEscrow));
+
+                if (qtyByEscrow <= 0)
+                {
+                    // Invariant broken or empty escrow: cancel both and advance
+                    b.Qty = 0; b.EscrowCoins = 0; bi++;
+                    a.Qty = 0; a.EscrowItems = 0; ai++;
+                    continue;
+                }
+
+                // Limit by buyer capacity (handles future non-zero Food weight)
+                int carryFit = qtyByEscrow;
+                float unitKg = ItemDefs.KgPerUnit(ItemType.Food);
+                if (unitKg > 0f)
+                {
+                    float remainingKg = buyer.CapacityKg - buyer.Carry.Kg;
+                    if (remainingKg <= 0f) carryFit = 0;
+                    else
+                    {
+                        int maxFit = Mathf.FloorToInt(remainingKg / unitKg);
+                        carryFit = System.Math.Min(carryFit, System.Math.Max(0, maxFit));
+                    }
+                }
+
+                if (carryFit <= 0)
+                {
+                    // Buyer cannot carry even 1 unit → refund full bid escrow and cancel the bid
+                    buyer.Coins += b.EscrowCoins;
+                    b.EscrowCoins = 0;
+                    b.Qty = 0;
+                    bi++;            // next bid
+                    continue;        // keep same ask
+                }
+
+                int tradeQty = carryFit;
+
+                // --- Deliver items to buyer (fits by construction) ---
+                buyer.Carry.Add(ItemType.Food, tradeQty);
+
+                // --- Coins from bid escrow → seller wallet ---
+                int coinsToSeller = price * tradeQty;
                 b.EscrowCoins -= coinsToSeller;
                 seller.Coins  += coinsToSeller;
 
-                // Transfer items from ask escrow to buyer inventory
+                // --- Remove items from ask escrow ---
                 a.EscrowItems -= tradeQty;
-                buyer.Carry.Add(ItemType.Food, tradeQty);
 
-                // Reduce open qty
+                // --- Reduce open quantities ---
                 b.Qty -= tradeQty;
                 a.Qty -= tradeQty;
 
-                // advance indices if an order filled
+                // Advance indices if an order filled
                 if (b.Qty == 0) bi++;
                 if (a.Qty == 0) ai++;
-
-                UnityEngine.Debug.Log($"[MATCH] buyer={b.AgentId} seller={a.AgentId} qty={tradeQty} price={a.UnitPrice} tick={world.Tick}");
-
             }
-
-            // (Optional) we could refund remaining escrow on filled/cancelled/expired orders here.
-            // For week 1, we keep unfilled remainder in escrow to avoid dupes.
         }
     }
 }

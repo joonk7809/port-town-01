@@ -67,21 +67,24 @@ namespace PortTown01.Systems
                         if (logsCarried >= maxLogs) { s.P = Phase.ToMill; break; }
 
                         // need stock at node
-                        var node = (_forestSite.NodeId.HasValue)
-                            ? world.ResourceNodes.Find(n => n.Id == _forestSite.NodeId.Value)
-                            : null;
-                        if (node == null || node.Stock <= 0) { s.P = Phase.ToMill; break; }
-
+                        
                         if (!Arrived(a)) { a.TargetPos = _forestSite.StationPos; break; }
 
                         s.HarvestTimer += dt;
                         if (s.HarvestTimer >= HARVEST_TIME_PER_LOG)
                         {
                             s.HarvestTimer = 0f;
-                            // harvest one log
-                            node.Stock -= 1;
-                            a.Carry.Add(ItemType.Log, 1);
-                            a.Carry.Kg += LOG_KG;
+
+                            var node = (_forestSite.NodeId.HasValue)
+                                ? world.ResourceNodes.Find(n => n.Id == _forestSite.NodeId.Value)
+                                : null;
+                            if (node == null || node.Stock <= 0) { s.P = Phase.ToMill; break; }
+
+                            // Try to add; if overweight, go deliver
+                            if (a.Carry.TryAdd(ItemType.Log, 1, a.CapacityKg))
+                                node.Stock -= 1;
+                            else
+                                s.P = Phase.ToMill;
                         }
                         break;
 
@@ -96,8 +99,8 @@ namespace PortTown01.Systems
                         int qty = a.Carry.Get(ItemType.Log);
                         if (qty > 0)
                         {
-                            a.Carry.TryRemove(ItemType.Log, qty);
-                            a.Carry.Kg -= qty * LOG_KG;
+                            if (a.Carry.TryRemove(ItemType.Log, qty))
+                                _mill.Storage.Add(ItemType.Log, qty);
                             _mill.Storage.Add(ItemType.Log, qty);
 
                             // --- PAY PIECE-RATE ON DELIVERY ---

@@ -1,126 +1,134 @@
-using System;
-using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text;
+using System.Globalization;
 using UnityEngine;
 using PortTown01.Core;
-using PortTown01.Econ;
 
 namespace PortTown01.Systems
 {
-    // Verifies money conservation, non-negative counts, and detects "stuck" production.
-    public class AuditSystem : ISimSystem
+    // Writes 1 CSV line per second with key run metrics to Application.persistentDataPath/Snapshots
+    public class CSVSnapshotSystem : ISimSystem
     {
-        public string Name => "Audit";
+        public string Name => "CSVSnapshot";
 
-        // --- Tunables ---
-        const float CHECK_EVERY_SEC     = 1.0f;   // cadence for audits
-        const float STUCK_WINDOW_SEC    = 10.0f;  // no change for this long => warn
-        const bool  VERBOSE_OK_SUMMARY  = false;  // set true if you want a green OK line each check
+        const float SAMPLE_EVERY_SEC = 1f;
+        const float DAY_SECONDS = 600f;
+        const float START_HOUR  = 9f; // keep in sync with DayPlan
 
-        // --- Money baseline ---
-        private bool  _haveBaseline = false;
-        private int   _baselineCoins = 0; // sum(all agent coins) + sum(open bid escrow)
-
-        // --- Cadence ---
         private float _accum = 0f;
+        private string _filePath;
+        private bool _wroteHeader = false;
 
-        // --- Stuck detection snapshot ---
-        private int   _prevForestStock = int.MinValue;
-        private int   _prevMillLogs = int.MinValue;
-        private int   _prevMillPlanks = int.MinValue;
-        private float _lastChangeSimTime = 0f;
+        private int _prevForest = int.MinValue;
+        private int _prevMillLogs = int.MinValue;
+        private int _prevMillPlanks = int.MinValue;
 
         public void Tick(World world, int _, float dt)
         {
             _accum += dt;
-            if (_accum < CHECK_EVERY_SEC) return;
+            if (_accum < SAMPLE_EVERY_SEC) return;
             _accum = 0f;
 
-            // 1) Money conservation
-            int agentCoins = world.Agents.Sum(a => a.Coins);
-            int escrowCoins = world.FoodBook.Bids.Where(b => b.Qty > 0).Sum(b => b.EscrowCoins);
-            int totalCoins = agentCoins + escrowCoins;
+            EnsureFile();
 
-            if (!_haveBaseline)
-            {
-                _baselineCoins = totalCoins;
-                _haveBaseline  = true;
-                Debug.Log($"[AUDIT] Baseline coins set: {totalCoins}");
-            }
-            else if (totalCoins != _baselineCoins)
-            {
-                int delta = totalCoins - _baselineCoins;
-                Debug.LogError($"[AUDIT][MONEY] Non-conservation: now={totalCoins} vs baseline={_baselineCoins} (Δ={delta}).");
-            }
+            // --- metrics ---
+            float sim = world.SimTime;
+            float daySec = (float)((sim + (START_HOUR/24f)*DAY_SECONDS) % DAY_SECONDS);
+            int hh = Mathf.FloorToInt(daySec / DAY_SECONDS * 24f);
+            int mm = Mathf.FloorToInt(((daySec / DAY_SECONDS * 24f) - hh) * 60f);
 
-            // Negative coins check
-            foreach (var a in world.Agents)
-                if (a.Coins < 0)
-                    Debug.LogError($"[AUDIT][MONEY] Agent#{a.Id} has negative coins: {a.Coins}");
-            foreach (var bid in world.FoodBook.Bids.Where(o=>o.Qty>0))
-                if (bid.EscrowCoins < 0)
-                    Debug.LogError($"[AUDIT][MONEY] Bid#{bid.Id} has negative escrow coins: {bid.EscrowCoins}");
+            int agents = world.Agents.Count;
+            float avgFood = agents > 0 ? world.Agents.Average(a => a.Food) : 0f;
+            float avgRest = agents > 0 ? world.Agents.Average(a => a.Rest) : 0f;
 
-            // 2) Item sanity (non-negative everywhere) + quick totals
-            var itemTotals = new Dictionary<ItemType, int>();
-            foreach (ItemType it in Enum.GetValues(typeof(ItemType))) itemTotals[it] = 0;
-
-            // agents
-            foreach (var a in world.Agents)
-            {
-                foreach (var kv in a.Carry.Items)
-                {
-                    if (kv.Value < 0)
-                        Debug.LogError($"[AUDIT][ITEM] Agent#{a.Id} has negative {kv.Key}: {kv.Value}");
-                    itemTotals[kv.Key] += Math.Max(0, kv.Value);
-                }
-            }
-            // buildings
-            foreach (var b in world.Buildings)
-            {
-                foreach (var kv in b.Storage.Items)
-                {
-                    if (kv.Value < 0)
-                        Debug.LogError($"[AUDIT][ITEM] Building#{b.Id} has negative {kv.Key}: {kv.Value}");
-                    itemTotals[kv.Key] += Math.Max(0, kv.Value);
-                }
-            }
-            // asks escrow (Food only right now)
-            int escrowFood = world.FoodBook.Asks.Where(o => o.Item == ItemType.Food && o.Qty > 0).Sum(o => o.EscrowItems);
-            if (escrowFood < 0) Debug.LogError($"[AUDIT][ITEM] Ask escrow negative for Food: {escrowFood}");
-            itemTotals[ItemType.Food] += Math.Max(0, escrowFood);
-
-            if (VERBOSE_OK_SUMMARY)
-            {
-                string itemsLine = string.Join(", ", itemTotals.Select(kv=>$"{kv.Key}:{kv.Value}"));
-                Debug.Log($"[AUDIT][OK] coins={totalCoins} items[{itemsLine}]");
-            }
-
-            // 3) Stuck detection (forest→mill→planks)
             int forestStock = world.ResourceNodes.Count > 0 ? world.ResourceNodes[0].Stock : 0;
-            int millLogs    = world.Buildings.Count > 0 ? world.Buildings[0].Storage.Get(ItemType.Log)   : 0;
-            int millPlanks  = world.Buildings.Count > 0 ? world.Buildings[0].Storage.Get(ItemType.Plank) : 0;
+            int millLogs    = world.Buildings.Count    > 0 ? world.Buildings[0].Storage.Get(ItemType.Log)   : 0;
+            int millPlanks  = world.Buildings.Count    > 0 ? world.Buildings[0].Storage.Get(ItemType.Plank) : 0;
 
-            bool changed = (forestStock != _prevForestStock) || (millLogs != _prevMillLogs) || (millPlanks != _prevMillPlanks);
-            if (changed)
+            int dForest   = (_prevForest == int.MinValue)    ? 0 : forestStock - _prevForest;
+            int dMillLogs = (_prevMillLogs == int.MinValue)  ? 0 : millLogs - _prevMillLogs;
+            int dPlanks   = (_prevMillPlanks == int.MinValue)? 0 : millPlanks - _prevMillPlanks;
+            _prevForest = forestStock; _prevMillLogs = millLogs; _prevMillPlanks = millPlanks;
+
+            int bids = world.FoodBook.Bids.Count(o => o.Qty > 0);
+            int asks = world.FoodBook.Asks.Count(o => o.Qty > 0);
+            int bestBid = world.FoodBook.Bids.Where(o=>o.Qty>0).Select(o=>o.UnitPrice).DefaultIfEmpty(0).Max();
+            int bestAsk = world.FoodBook.Asks.Where(o=>o.Qty>0).Select(o=>o.UnitPrice).DefaultIfEmpty(0).Min();
+
+            var vendor = world.Agents.FirstOrDefault(a => a.IsVendor);
+            int vendorInv   = vendor != null ? vendor.Carry.Get(ItemType.Food) : 0;
+            int vendorEsc   = (vendor != null) ? world.FoodBook.Asks.Where(o=>o.AgentId==vendor.Id && o.Item==ItemType.Food && o.Qty>0).Sum(o=>o.EscrowItems) : 0;
+            int vendorCoins = vendor != null ? vendor.Coins : 0;
+            int vendorForSale = vendorInv + vendorEsc;
+
+            var boss = world.Agents.Where(a => !a.IsVendor).OrderByDescending(a => a.Coins).FirstOrDefault();
+            int bossCoins = boss != null ? boss.Coins : 0;
+
+            int agentCoins = world.Agents.Sum(a => a.Coins);
+            int bidEscrow  = world.FoodBook.Bids.Where(b=>b.Qty>0).Sum(b => b.EscrowCoins);
+            int totalCoins = agentCoins + bidEscrow;
+
+            int loggers = world.Agents.Count(a => a.Role == JobRole.Logger);
+            int workingLoggers = world.Agents.Count(a => a.Role == JobRole.Logger && a.Phase == DayPhase.Work);
+
+            if (!_wroteHeader)
             {
-                _prevForestStock = forestStock;
-                _prevMillLogs    = millLogs;
-                _prevMillPlanks  = millPlanks;
-                _lastChangeSimTime = world.SimTime;
+                var header = "tick,sim_s,tod,agents,avgFood,avgRest," +
+                             "forestStock,dForest,millLogs,dMillLogs,millPlanks,dPlanks," +
+                             "bids,asks,bestBid,bestAsk," +
+                             "vendorInv,vendorEscrow,vendorForSale,vendorCoins," +
+                             "bossCoins,totalCoins,loggers,workingLoggers";
+                System.IO.File.AppendAllText(_filePath, header + "\n", Encoding.UTF8);
+                Debug.Log($"[CSV] Snapshotting to: {_filePath}");
+                _wroteHeader = true;
             }
-            else
-            {
-                float idleFor = (float)(world.SimTime - _lastChangeSimTime);
-                bool haveLoggers = world.Agents.Any(a => a.Role == JobRole.Logger);
-                if (idleFor >= STUCK_WINDOW_SEC && haveLoggers)
-                {
-                    Debug.LogWarning($"[AUDIT][STUCK] No production change for ~{idleFor:F1}s " +
-                                     $"(forest={forestStock}, millLogs={millLogs}, planks={millPlanks}).");
-                    // reset the timer so we don't spam every check
-                    _lastChangeSimTime = (float)world.SimTime;
-                }
-            }
+
+            var inv = CultureInfo.InvariantCulture;
+            string tod = $"{hh:D2}:{mm:D2}";
+
+            var line = string.Join(",",
+                world.Tick.ToString(inv),
+                sim.ToString("F1", inv),
+                tod,
+                agents.ToString(inv),
+                avgFood.ToString("F2", inv),
+                avgRest.ToString("F2", inv),
+                forestStock.ToString(inv),
+                dForest.ToString(inv),
+                millLogs.ToString(inv),
+                dMillLogs.ToString(inv),
+                millPlanks.ToString(inv),
+                dPlanks.ToString(inv),
+                bids.ToString(inv),
+                asks.ToString(inv),
+                bestBid.ToString(inv),
+                bestAsk.ToString(inv),
+                vendorInv.ToString(inv),
+                vendorEsc.ToString(inv),
+                vendorForSale.ToString(inv),
+                vendorCoins.ToString(inv),
+                bossCoins.ToString(inv),
+                totalCoins.ToString(inv),
+                loggers.ToString(inv),
+                workingLoggers.ToString(inv)
+            );
+
+            System.IO.File.AppendAllText(_filePath, line + "\n", Encoding.UTF8);
+        }
+
+        private void EnsureFile()
+        {
+            if (!string.IsNullOrEmpty(_filePath)) return;
+
+            string dir = Path.Combine(Application.persistentDataPath, "Snapshots");
+            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+            string ts = System.DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            _filePath = Path.Combine(dir, $"run_{ts}.csv");
         }
     }
 }
+
+// for file access to CSV enter into terminal:
+// open -R ~/Library/Application\ Support/DefaultCompany/PortTown01/Snapshots/ 

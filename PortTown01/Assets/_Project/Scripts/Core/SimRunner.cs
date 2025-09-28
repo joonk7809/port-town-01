@@ -54,7 +54,8 @@ namespace PortTown01.Core
                 new MillProcessingSystem(),
                 new TelemetrySystem(),
                 new CSVSnapshotSystem(),
-                new AuditSystem()
+                new AuditSystem(),
+                new GuardrailsSystem()
             };
 
             BootstrapAgents(bootstrapAgents);
