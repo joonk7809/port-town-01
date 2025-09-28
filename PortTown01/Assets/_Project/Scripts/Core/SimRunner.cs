@@ -22,9 +22,13 @@ namespace PortTown01.Core
         [Tooltip("How many placeholder agents to spawn at start")]
         public int bootstrapAgents = 20;
 
-        private float _accum;
         private World _world;
         private List<ISimSystem> _pipeline;
+        
+        [SerializeField] private float _fixedDt = 0.05f;   // 20 Hz sim
+        [SerializeField] private int   _maxStepsPerFrame = 6; // cap work per frame
+        private float _accum = 0f;
+
 
         public World WorldRef => _world;   // read-only access for other systems/HUD
 
@@ -32,10 +36,14 @@ namespace PortTown01.Core
         // ---------- UNITY LIFECYCLE ----------
         void Awake()
         {
-            Application.targetFrameRate = 60;  // render target (not enforced hard)
-            Time.fixedDeltaTime = fixedDelta;  // for reference; we use our own loop
+                Application.targetFrameRate = 60;
+                Time.fixedDeltaTime = fixedDelta;
 
-            Random.InitState(randomSeed);
+                // sync public inspector fields into the loop fields
+                _fixedDt = fixedDelta;
+                _maxStepsPerFrame = maxStepsPerFrame;
+
+                Random.InitState(randomSeed);
 
             _world = new World();
             _pipeline = new List<ISimSystem>
@@ -47,6 +55,7 @@ namespace PortTown01.Core
                 new EmploymentSystem(),
 
                 new PriceDynamicsSystem(),
+                new PlannerSystem(),
                 
                 new DemoHarvestSystem(),
                 new FoodTradeSystem(),
@@ -66,25 +75,29 @@ namespace PortTown01.Core
                 new GuardrailsSystem()
             };
 
-            BootstrapAgents(bootstrapAgents);
+            BootstrapAgents(200);
             BootstrapWorld();
         }
 
-        void Update()
+        private void Update()
         {
             _accum += Time.deltaTime;
 
             int steps = 0;
-            while (_accum >= fixedDelta && steps < maxStepsPerFrame)
+            while (_accum >= _fixedDt && steps < _maxStepsPerFrame)
             {
-                StepOnce();
-                _accum -= fixedDelta;
+                // one fixed tick
+                for (int i = 0; i < _pipeline.Count; i++)
+                    _pipeline[i].Tick(_world, _world.Tick, _fixedDt);
+
+                _world.Advance(1, _fixedDt);
+                _accum -= _fixedDt;
                 steps++;
             }
-            // If we fell behind massively, drop leftover to keep things stable
-            if (steps == maxStepsPerFrame) _accum = 0f;
 
-            // (Optional later) interpolate visuals using _accum/fixedDelta
+            // If we fall way behind (e.g., pause/unpause), trim backlog to avoid spiral of death
+            if (steps == _maxStepsPerFrame && _accum > _fixedDt * 4f)
+                _accum = _fixedDt; // keep one extra step pending
         }
 
         // ---------- SIM CORE ----------

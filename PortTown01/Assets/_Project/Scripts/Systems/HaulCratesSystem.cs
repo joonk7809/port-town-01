@@ -87,7 +87,7 @@ namespace PortTown01.Systems
                             var boss = world.Agents.FirstOrDefault(x => x.IsEmployer);
                             if (boss == null) boss = world.Agents.Where(x => !x.IsVendor).OrderByDescending(x => x.Coins).FirstOrDefault();
 
-                            int saleOwed = PortTown01.Core.EconDefs.CRATE_PRICE * qty;
+                            int saleOwed = world.CratePrice * qty;
                             int salePaid = Mathf.Min(saleOwed, _dockBuyer.Coins);
 
                             _dockBuyer.Coins -= salePaid;

@@ -12,4 +12,4 @@ namespace PortTown01.Core
         public const int CRATE_PRICE_MIN  = 15;
         public const int CRATE_PRICE_MAX  = 40;
     }
-}
+} 

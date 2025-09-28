@@ -25,6 +25,9 @@ namespace PortTown01.Systems
         private int _prevMillCrates = int.MinValue;
         private int _prevDockCoins = int.MinValue;
 
+        private int _prevCratesSold = int.MinValue;
+
+
         public void Tick(World world, int _, float dt)
         {
             _accum += dt;
@@ -82,9 +85,11 @@ namespace PortTown01.Systems
             int totalCoins = agentCoins + bidEscrow;
 
             // estimate shipped crates by dock coin outflow
-            int coinsOutDock = (_prevDockCoins == int.MinValue) ? 0 : (_prevDockCoins - dockCoins);
-            _prevDockCoins = dockCoins;
-            int cratesShipped = EconDefs.CRATE_PRICE > 0 ? coinsOutDock / EconDefs.CRATE_PRICE : 0;
+            int cratesShipped = (_prevCratesSold == int.MinValue)
+                ? 0
+                : (world.CratesSold - _prevCratesSold);
+            _prevCratesSold = world.CratesSold;
+
 
             int loggers = world.Agents.Count(a => a.Role == JobRole.Logger);
             int workingLoggers = world.Agents.Count(a => a.Role == JobRole.Logger && a.Phase == DayPhase.Work);
@@ -98,6 +103,12 @@ namespace PortTown01.Systems
 
             int foodPrice  = world.FoodPrice;
             int cratePrice = world.CratePrice;  
+            int intentWork    = world.Agents.Count(a => a.Intent == PortTown01.Core.AgentIntent.Work);
+            int intentEat     = world.Agents.Count(a => a.Intent == PortTown01.Core.AgentIntent.Eat);
+            int intentSleep   = world.Agents.Count(a => a.Intent == PortTown01.Core.AgentIntent.Sleep);
+            int intentLeisure = world.Agents.Count(a => a.Intent == PortTown01.Core.AgentIntent.Leisure);
+
+            
 
 
 
@@ -110,7 +121,8 @@ namespace PortTown01.Systems
                              "bossCoins,dockCoins,totalCoins," +
                              "cratesShipped,loggers,workingLoggers,haulers,workingHaulers" + 
                              "cratesSold,revDock,wagesHaul,profit" +
-                             "foodPrice,cratePrice";
+                             "foodPrice,cratePrice" + 
+                             "intentWork,intentEat,intentSleep,intentLeisure";
                 File.AppendAllText(_filePath, header + "\n", Encoding.UTF8);
                 Debug.Log($"[CSV] Snapshotting to: {_filePath}");
                 _wroteHeader = true;

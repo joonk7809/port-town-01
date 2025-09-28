@@ -6,11 +6,13 @@ namespace PortTown01.Core
     public class Agent
 
     {
-
+        
         public int Id;
         public Vector3 Pos;
         public Vector3 TargetPos;
         public float SpeedMps = 1.5f;
+
+        public AgentIntent Intent = AgentIntent.Idle;
 
         public float Food = 100f;
         public float Rest = 100f;
