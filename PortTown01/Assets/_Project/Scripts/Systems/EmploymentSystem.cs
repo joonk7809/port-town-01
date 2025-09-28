@@ -11,6 +11,7 @@ namespace PortTown01.Systems
 
         private const int TARGET_LOGGERS = 4;
         private const float WAGE_PER_MIN = 2.0f; // kept for future use
+        private const int TARGET_HAULERS = 2;
 
         private Worksite _logging;
         private Agent _boss;
@@ -50,6 +51,34 @@ namespace PortTown01.Systems
                     c.Role = JobRole.Logger;
                     c.EmployerId = _boss.Id;
                     c.JobWorksiteId = _logging.Id;
+                    c.ContractId = k.Id;
+                }
+            }
+            // Ensure some Haulers exist
+            var currentHaulers = world.Agents.Where(a => a.Role == JobRole.Hauler).ToList();
+            int needH = TARGET_HAULERS - currentHaulers.Count;
+            if (needH > 0)
+            {
+                var candidatesH = world.Agents.Where(a =>
+                    a.Id != _boss.Id && !a.IsVendor && a.Role == JobRole.None).Take(needH).ToList();
+
+                foreach (var c in candidatesH)
+                {
+                    var k = new Contract
+                    {
+                        Id = world.NextContractId++,
+                        Type = ContractType.Employment,
+                        State = ContractState.Active,
+                        EmployerId = _boss.Id,
+                        EmployeeId = c.Id,
+                        WorksiteId = _logging != null ? _logging.Id : 0, // placeholder
+                        WagePerMin = WAGE_PER_MIN
+                    };
+                    world.Contracts.Add(k);
+
+                    c.Role = JobRole.Hauler;
+                    c.EmployerId = _boss.Id;
+                    c.JobWorksiteId = null;
                     c.ContractId = k.Id;
                 }
             }

@@ -45,13 +45,18 @@ namespace PortTown01.Core
                 new NeedsDecaySystem(),
                 new DayPlanSystem(),
                 new EmploymentSystem(),
+                
                 new DemoHarvestSystem(),
                 new FoodTradeSystem(),
                 new MovementSystem(),
                 new SleepSystem(),
+                
                 new OrderMatchingSystem(),
                 new EatingSystem(),
+                
                 new MillProcessingSystem(),
+                new CratePackingSystem(),
+
                 new TelemetrySystem(),
                 new CSVSnapshotSystem(),
                 new AuditSystem(),
@@ -214,6 +219,45 @@ namespace PortTown01.Core
             _world.Agents.Add(boss);
             SpawnView(boss);
             SpawnMarker(boss.Pos, new Color(1.0f, 0.5f, 0f), "Boss");
+
+            // 7) Dock building
+            var dock = new Building
+            {
+                Id = 1,
+                Type = BuildingType.Dock,
+                Pos = new Vector3(40f, 0f, 0f),
+                Slots = 1
+            };
+            _world.Buildings.Add(dock);
+            SpawnMarker(dock.Pos, new Color(0.2f, 0.8f, 1f), "Dock");
+
+            // 8) Dock loading worksite
+            _world.Worksites.Add(new Worksite
+            {
+                Id = 3,
+                NodeId = null,
+                BuildingId = dock.Id,
+                Type = WorkType.DockLoading,
+                StationPos = dock.Pos + new Vector3(-2f, 0f, 0f),
+                InUse = false,
+                OccupantId = null,
+                ServiceRemainingSec = 0f,
+                ServiceDurationSec  = 0.8f
+            });
+
+            // 9) Dock Authority (crate buyer with coins)
+            var dockBuyer = new Agent
+            {
+                Id = _world.Agents.Count,
+                Pos = dock.Pos + new Vector3(2f, 0f, 0f),
+                TargetPos = dock.Pos + new Vector3(2f, 0f, 0f),
+                SpeedMps = 0f,
+                Coins = 10000,
+                AllowWander = false
+            };
+            _world.Agents.Add(dockBuyer);
+            SpawnView(dockBuyer);
+            SpawnMarker(dockBuyer.Pos, new Color(0.2f, 0.8f, 1f), "Buyer");
         }
 
         private void SpawnMarker(Vector3 pos, Color color, string name)
