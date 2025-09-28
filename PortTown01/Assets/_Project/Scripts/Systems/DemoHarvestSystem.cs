@@ -11,8 +11,6 @@ namespace PortTown01.Systems
     {
         public string Name => "DemoHarvest";
 
-        private const int WAGE_PER_LOG = 2; // coins per log delivered (tune)
-
 
         private enum Phase { ToForest, Harvest, ToMill, Store }
         private class State { public Phase P; public float HarvestTimer; }
@@ -113,7 +111,7 @@ namespace PortTown01.Systems
                                 var boss = world.Agents.FirstOrDefault(x => x.Id == k.EmployerId);
                                 if (boss != null && boss.Coins > 0)
                                 {
-                                    int owed = WAGE_PER_LOG * qty;
+                                    int owed = Mathf.Min(boss.Coins, qty * Econ.EconDefs.WAGE_PER_LOG);
                                     int pay  = Mathf.Min(owed, boss.Coins);
                                     boss.Coins -= pay;
                                     a.Coins    += pay;

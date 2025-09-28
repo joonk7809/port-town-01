@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using PortTown01.Core;
+using PortTown01.Econ;
 
 namespace PortTown01.Systems
 {
@@ -104,6 +105,7 @@ namespace PortTown01.Systems
                             a.Coins    += wagePaid;
 
                             world.WagesHaul += wagePaid;
+
                         }
 
                         st.P = Phase.ToMill;

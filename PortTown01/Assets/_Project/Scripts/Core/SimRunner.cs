@@ -54,11 +54,13 @@ namespace PortTown01.Core
                 new DayPlanSystem(),
                 new EmploymentSystem(),
 
-                new PriceElasticitySystem(),
+                new PricePIControllerSystem(),
                 new PlannerSystem(),
                 
                 new DemoHarvestSystem(),
                 new FoodTradeSystem(),
+                new VendorRestockSystem(),
+                new CityBudgetAndDemandSystem(),
                 new HaulCratesSystem(),
                 new MovementSystem(),
                 new SleepSystem(),
@@ -73,11 +75,16 @@ namespace PortTown01.Core
                 new AgentCSVSnapshotSystem(),
                 new CSVSnapshotSystem(),
                 new AuditSystem(),
-                new GuardrailsSystem()
+                new GuardrailsSystem(),
+                new KPISystem(),
             };
+            
+
 
             BootstrapAgents(bootstrapAgents);
             BootstrapWorld();
+
+            Debug.Log($"[SimRunner] bootstrapAgents = {bootstrapAgents}");
         }
 
         private void Update()
