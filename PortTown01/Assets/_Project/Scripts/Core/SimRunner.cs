@@ -54,14 +54,11 @@ namespace PortTown01.Core
                 new DayPlanSystem(),
                 new EmploymentSystem(),
 
-                new PricePIControllerSystem(),
                 new PlannerSystem(),
                 
                 new DemoHarvestSystem(),
                 new FoodTradeSystem(),
-                new VendorRestockSystem(),
-                new CityBudgetAndDemandSystem(),
-                new HaulCratesSystem(),
+
                 new MovementSystem(),
                 new SleepSystem(),
                 
@@ -70,12 +67,19 @@ namespace PortTown01.Core
                 
                 new MillProcessingSystem(),
                 new CratePackingSystem(),
+                new HaulCratesSystem(),
+
+                new PricePIControllerSystem(),
+                new VendorRestockSystem(),
+                new CityBudgetAndDemandSystem(),
 
                 new TelemetrySystem(),
                 new AgentCSVSnapshotSystem(),
                 new CSVSnapshotSystem(),
+
                 new AuditSystem(),
                 new GuardrailsSystem(),
+
                 new KPISystem(),
             };
             

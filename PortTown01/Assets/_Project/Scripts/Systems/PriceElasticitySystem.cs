@@ -1,6 +1,7 @@
 using System.Linq;
 using UnityEngine;
 using PortTown01.Core;
+using PortTown01.Econ;
 
 namespace PortTown01.Systems
 {
@@ -12,7 +13,6 @@ namespace PortTown01.Systems
         public string Name => "PriceElasticity";
 
         const float TICK_SEC = 1f;
-        float _accum = 0f;
 
         // EMA smoothing for signals
         const float ALPHA = 0.25f;
@@ -41,11 +41,9 @@ namespace PortTown01.Systems
         const int   CRATE_MAX_STEP  = 2;
         const float CRATE_DEAD_BAND = 0.20f;
 
-        public void Tick(World world, int _, float dt)
+        public void Tick(World world, int tick, float dt)
         {
-            _accum += dt;
-            if (_accum < TICK_SEC) return;
-            _accum = 0f;
+            if (!SimTicks.Every1Hz(tick)) return;
 
             // ---------------- FOOD ----------------
             var vendor = world.Agents.FirstOrDefault(a => a.IsVendor);

@@ -1,6 +1,7 @@
 using System.Linq;
 using UnityEngine;
 using PortTown01.Core;
+using PortTown01.Econ;
 
 namespace PortTown01.Systems
 {
@@ -13,7 +14,6 @@ namespace PortTown01.Systems
         public string Name => "PriceDynamics";
 
         const float EVERY_SEC = 1f;
-        float _accum = 0f;
 
         // EMA smoothing
         const float ALPHA = 0.25f;
@@ -24,11 +24,9 @@ namespace PortTown01.Systems
         int prevFoodSold = 0;
         int prevCratesSold = 0;
 
-        public void Tick(World world, int _, float dt)
+        public void Tick(World world, int tick, float dt)
         {
-            _accum += dt;
-            if (_accum < EVERY_SEC) return;
-            _accum = 0f;
+            if (!SimTicks.Every1Hz(tick)) return;
 
             // --- FOOD signals ---
             var vendor = world.Agents.FirstOrDefault(a => a.IsVendor);

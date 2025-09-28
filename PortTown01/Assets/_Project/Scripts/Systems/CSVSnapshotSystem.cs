@@ -15,7 +15,6 @@ namespace PortTown01.Systems
         const float DAY_SECONDS = 600f;
         const float START_HOUR  = 9f;
 
-        private float _accum = 0f;
         private string _filePath;
         private bool _wroteHeader = false;
 
@@ -28,11 +27,9 @@ namespace PortTown01.Systems
         private int _prevCratesSold = int.MinValue;
 
 
-        public void Tick(World world, int _, float dt)
+        public void Tick(World world, int tick, float dt)
         {
-            _accum += dt;
-            if (_accum < SAMPLE_EVERY_SEC) return;
-            _accum = 0f;
+            if (!SimTicks.Every1Hz(tick)) return;
 
             EnsureFile();
 

@@ -26,21 +26,29 @@ namespace PortTown01.Core
         public int WagesHaul = 0;          // coins paid out to haulers for delivery
 
         // --- Live prices (mutable) ---
-        public int FoodPrice  = PortTown01.Core.EconDefs.FOOD_PRICE_BASE;
-        public int CratePrice = PortTown01.Core.EconDefs.CRATE_PRICE_BASE;
+        public int FoodPrice  = EconDefs.FOOD_PRICE_BASE;
+        public int CratePrice = EconDefs.CRATE_PRICE_BASE;
 
         // --- Food sales ledger (cumulative) ---
         public int FoodSold       = 0;  // total Food units sold via order book
         public int VendorRevenue  = 0;  // coins received by vendor from Food sales
 
+        // --- External money flow tracking (for AuditSystem) ---
+        public long CoinsExternalInflow;   // cumulative "minting" (e.g., tax top-ups)
+        public long CoinsExternalOutflow;  // cumulative "burns" (e.g., wholesale payments, budget decay)
+
+
         // --- City wholesaler (true coin sink for vendor restock) ---
         public int CityWholesalerCoins;            // sink accumulator (for audits/telemetry)
 
-        // --- City dock buyer budget ---
-        public float CityBudget;                   // current spendable budget (coins)
-        public float CityBudgetDailyTopUp = 1200f; // τ per in-game day
-        public float CityBudgetDecayKappa = 0.95f; // κ roll-over decay per day (applied continuously)
-        public float CityBudgetSecTopUp => CityBudgetDailyTopUp / 600f; // day=600s
+        // --- City dock buyer budget (INT coins, no rounding drift) ---
+        public int   CityBudget;                   // current spendable budget (coins)
+        public int   CityBudgetDailyTopUp = 1200;  // τ per in-game day (coins)
+        public float CityBudgetDecayKappa = 0.95f; // κ roll-over decay per day
+        public int   CityBudgetSecTopUp => CityBudgetDailyTopUp / 600; // day=600s, 1200/600=2
+
+        // fractional decay accumulator (keeps sub-coin leftovers so no loss)
+        public float CityBudgetDecayResid;         // [0,1) carried forward
 
         // --- Dock demand (crates/sec) ---
         public float DemandAlpha = 8f;             // α

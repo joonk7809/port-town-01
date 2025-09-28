@@ -11,13 +11,9 @@ namespace PortTown01.Systems
     {
         public string Name => "PricePI";
 
-        private float _accum;
-
         public void Tick(World world, int tick, float dt)
         {
-            _accum += dt;
-            if (_accum < 1f) return;
-            _accum -= 1f;
+            if (!SimTicks.Every1Hz(tick)) return;
 
             // --- Update sell-rate EMAs (items/sec) from last-second deltas ---
             // You already maintain FoodSold and CratesSold deltas in Telemetry; we recompute here

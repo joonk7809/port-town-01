@@ -4,53 +4,65 @@ using PortTown01.Core;
 
 namespace PortTown01.Systems
 {
-    // Manages city budget (top-up & decay) and writes coins into the dock buyer agent.
-    // Also computes a "desired purchases per second" D_t; the existing dock buyer
-    // behavior already caps by its coins when paying the boss at unload.
+    // Manages city budget (top-up & decay), AR(1) demand shock,
+    // and allocates coins to the dock buyer each second.
     public class CityBudgetAndDemandSystem : ISimSystem
     {
         public string Name => "CityBudget";
 
-        private float _accum;
-
         public void Tick(World world, int tick, float dt)
         {
-            _accum += dt;
-            if (_accum < 1f) return;
-            _accum -= 1f;
+            if (!SimTicks.Every1Hz(tick)) return; // cadence aligned with Audit
 
-            // --- Budget dynamics per second ---
-            // continuous top-up (τ/day distributed over 600s)
-            world.CityBudget += world.CityBudgetSecTopUp;
-            // simple decay of unspent budget toward 0 at kappa per day ~ apply fractional per second
+            // --- Budget: top-up (int) ---
+            int top = world.CityBudgetSecTopUp; // e.g., 2 coins/sec
+            if (top > 0)
+            {
+                world.CityBudget          += top;
+                world.CoinsExternalInflow += top; // external "mint"
+            }
+
+            // --- Budget: decay with fractional residue bucket ---
             float perSecKappa = Mathf.Pow(world.CityBudgetDecayKappa, 1f / 600f);
-            world.CityBudget *= perSecKappa;
+            float decFloat    = world.CityBudget * (1f - perSecKappa);
+            world.CityBudgetDecayResid += decFloat;
+            int decInt = Mathf.FloorToInt(world.CityBudgetDecayResid);
+            if (decInt > 0)
+            {
+                int decApplied = Mathf.Min(decInt, world.CityBudget);
+                world.CityBudget           -= decApplied;
+                world.CoinsExternalOutflow += decApplied; // external "burn"
+                world.CityBudgetDecayResid -= decApplied;
+            }
 
-            // --- Demand AR(1) shock update (ε_t = ρ ε_{t-1} + η) ---
-            float eta = Random.Range(-world.DemandSigma, world.DemandSigma); // simple bounded noise (ok for sim)
+            // --- Demand: AR(1) shock ε_t = ρ ε_{t-1} + η_t, η~U[-σ,σ] (simple) ---
+            float eta = Random.Range(-world.DemandSigma, world.DemandSigma);
             world.DemandShock = world.DemandRho * world.DemandShock + eta;
 
-            // Indicative crate price (use live)
+            // Desired purchases per second D_t = max(0, α − β P_t + ε_t)
             float P = Mathf.Max(1, world.CratePrice);
             float desired = Mathf.Max(0f, world.DemandAlpha - world.DemandBeta * P + world.DemandShock);
 
-            // Put the city's budget as COINS into the dock buyer agent up to the budget
-            var dockBuyer = world.Agents.FirstOrDefault(a =>
-                !a.IsVendor && !a.IsEmployer && Vector3.Distance(a.Pos, new Vector3(40f,0f,0f)) < 5f); // your spawn matches this
+            // --- Find dock buyer agent (stationary, near dock loading site/building) ---
+            var dockSite = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.DockLoading);
+            Vector3 anchor = dockSite != null
+                ? dockSite.StationPos
+                : (world.Buildings.FirstOrDefault(b => b.Type == BuildingType.Dock)?.Pos ?? Vector3.zero);
 
-            if (dockBuyer != null)
+            var dockBuyer = world.Agents
+                .OrderByDescending(a => a.Coins)
+                .FirstOrDefault(a => !a.IsVendor && !a.IsEmployer &&
+                                     a.SpeedMps <= 0.01f &&
+                                     Vector3.Distance(a.Pos, anchor) < 6f);
+            if (dockBuyer == null) return;
+
+            // --- Allocate city coins to buyer for ~1 second of demand at current price ---
+            int alloc = Mathf.Min(world.CityBudget, Mathf.FloorToInt(desired * world.CratePrice));
+            if (alloc > 0)
             {
-                // allocate a spend envelope for the next second: min(budget, desired * price)
-                int alloc = Mathf.FloorToInt(Mathf.Min(world.CityBudget, desired * world.CratePrice));
-                if (alloc > 0)
-                {
-                    dockBuyer.Coins += alloc;
-                    world.CityBudget -= alloc;
-                }
+                dockBuyer.Coins += alloc;
+                world.CityBudget -= alloc; // transfer inside model (not external)
             }
-
-            // Optional: keep a world-level stat for desired purchases (for telemetry)
-            world.CratesSold += 0; // no-op to remind this ties to OrderMatching/Haul unload
         }
     }
 }

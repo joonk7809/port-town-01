@@ -18,11 +18,11 @@ namespace PortTown01.Systems
         const float BID_COOLDOWN    = 6f;    // seconds between bids per agent
         const int   ASK_CAP         = 20;    // vendor keeps this many units posted as asks
 
-        private Worksite _stall;     // Trading worksite near the vendor
-        private Agent _vendor;       // The vendor agent
+        private Worksite _stall;                 // Trading worksite near the vendor
+        private Agent _vendor;                   // The vendor agent
         private readonly Dictionary<int, float> _nextBidAt = new(); // agentId -> simTime they can bid again
 
-        public void Tick(World world, int _, float dt)
+        public void Tick(World world, int tick, float dt)
         {
             // --- lazy resolve stall + vendor ---
             if (_vendor == null) _vendor = world.Agents.FirstOrDefault(a => a.IsVendor);
@@ -35,6 +35,7 @@ namespace PortTown01.Systems
             int openAskQty = world.FoodBook.Asks
                 .Where(o => o.AgentId == _vendor.Id && o.Item == ItemType.Food && o.Qty > 0)
                 .Sum(o => o.Qty);
+
             int inv = _vendor.Carry.Get(ItemType.Food);
             int toPost = Mathf.Min(inv, ASK_CAP - openAskQty);
             if (toPost > 0)
@@ -44,15 +45,15 @@ namespace PortTown01.Systems
                 {
                     world.FoodBook.Asks.Add(new Offer
                     {
-                        Id         = world.FoodBook.NextOfferId++,
-                        AgentId    = _vendor.Id,
-                        Item       = ItemType.Food,
-                        Side       = Side.Sell,
-                        Qty        = toPost,
-                        UnitPrice  = world.FoodPrice, // live price
-                        PostTick   = world.Tick,
-                        ExpiryTick = world.Tick + 1800, // ~90s at 20 Hz
-                        EscrowItems= toPost
+                        Id          = world.FoodBook.NextOfferId++,
+                        AgentId     = _vendor.Id,
+                        Item        = ItemType.Food,
+                        Side        = Side.Sell,
+                        Qty         = toPost,
+                        UnitPrice   = world.FoodPrice, // live price
+                        PostTick    = world.Tick,
+                        ExpiryTick  = world.Tick + 1800, // ~90s at 20 Hz
+                        EscrowItems = toPost
                     });
                 }
             }
@@ -73,7 +74,7 @@ namespace PortTown01.Systems
                 float dist = Vector3.Distance(a.Pos, _stall.StationPos);
                 if (dist > a.InteractRange * 1.25f)
                 {
-                    // Nudge toward stall; your MovementSystem will handle the rest
+                    // Nudge toward stall; MovementSystem will handle the rest
                     a.TargetPos = _stall.StationPos;
                     continue;
                 }
@@ -99,24 +100,58 @@ namespace PortTown01.Systems
 
                 world.FoodBook.Bids.Add(new Offer
                 {
-                    Id         = world.FoodBook.NextOfferId++,
-                    AgentId    = a.Id,
-                    Item       = ItemType.Food,
-                    Side       = Side.Buy,
-                    Qty        = affordQty,
-                    UnitPrice  = wtp,
-                    PostTick   = world.Tick,
-                    ExpiryTick = world.Tick + 800, // ~40s @ 20 Hz
-                    EscrowCoins= escrow
+                    Id          = world.FoodBook.NextOfferId++,
+                    AgentId     = a.Id,
+                    Item        = ItemType.Food,
+                    Side        = Side.Buy,
+                    Qty         = affordQty,
+                    UnitPrice   = wtp,
+                    PostTick    = world.Tick,
+                    ExpiryTick  = world.Tick + 800, // ~40s @ 20 Hz
+                    EscrowCoins = escrow
                 });
 
                 _nextBidAt[a.Id] = now + BID_COOLDOWN;
             }
 
-            // --- Optional: purge expired orders to keep the book tidy ---
-            // (Cheap O(N) filter; do this here so we don't need a separate system.)
-            world.FoodBook.Bids.RemoveAll(o => o.Qty <= 0 || (o.ExpiryTick > 0 && world.Tick >= o.ExpiryTick));
-            world.FoodBook.Asks.RemoveAll(o => o.Qty <= 0 || (o.ExpiryTick > 0 && world.Tick >= o.ExpiryTick));
+            // --- Prune expired/empty orders with refunds/returns (NO burns) ---
+            // BIDS: refund any residual escrow before removal
+            for (int i = world.FoodBook.Bids.Count - 1; i >= 0; i--)
+            {
+                var bid = world.FoodBook.Bids[i];
+                bool expired = (bid.ExpiryTick > 0 && world.Tick >= bid.ExpiryTick);
+                bool empty   = bid.Qty <= 0;
+
+                if (expired || empty)
+                {
+                    if (bid.EscrowCoins > 0)
+                    {
+                        var bidder = world.Agents.FirstOrDefault(agent => agent.Id == bid.AgentId);
+                        if (bidder != null) bidder.Coins += bid.EscrowCoins;
+                        bid.EscrowCoins = 0;
+                    }
+                    world.FoodBook.Bids.RemoveAt(i);
+                }
+            }
+
+            // ASKS: return any residual escrowed items before removal
+            for (int i = world.FoodBook.Asks.Count - 1; i >= 0; i--)
+            {
+                var ask = world.FoodBook.Asks[i];
+                bool expired = (ask.ExpiryTick > 0 && world.Tick >= ask.ExpiryTick);
+                bool empty   = ask.Qty <= 0;
+
+                if (expired || empty)
+                {
+                    if (ask.EscrowItems > 0)
+                    {
+                        var seller = world.Agents.FirstOrDefault(agent => agent.Id == ask.AgentId);
+                        if (seller != null) seller.Carry.Add(ask.Item, ask.EscrowItems);
+                        ask.EscrowItems = 0;
+                    }
+                    world.FoodBook.Asks.RemoveAt(i);
+                }
+            }
         }
     }
 }

@@ -8,7 +8,6 @@ namespace PortTown01.Systems
     {
         public string Name => "Telemetry";
 
-        private float _accum = 0f;
         private const float EVERY = 1f;
 
         // deltas
@@ -19,11 +18,9 @@ namespace PortTown01.Systems
         private const float DAY_SECONDS = 600f;
         private const float START_HOUR  = 9f;
 
-        public void Tick(World world, int _, float dt)
+        public void Tick(World world, int tick, float dt)
         {
-            _accum += dt;
-            if (_accum < EVERY) return;
-            _accum = 0f;
+            if (!SimTicks.Every1Hz(tick)) return;
 
             // --- time of day ---
             float daySec = (float)((world.SimTime + (START_HOUR / 24f) * DAY_SECONDS) % DAY_SECONDS);

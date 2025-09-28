@@ -14,9 +14,7 @@ namespace PortTown01.Systems
 
         public void Tick(World world, int tick, float dt)
         {
-            _accum += dt;
-            if (_accum < 1f) return;
-            _accum -= 1f;
+            if (!SimTicks.Every1Hz(tick)) return;
 
             var vendor = world.Agents.FirstOrDefault(a => a.IsVendor);
             if (vendor == null) return;
@@ -49,6 +47,8 @@ namespace PortTown01.Systems
                 // Pay now to the sink; deliver later
                 vendor.Coins          -= cost;
                 world.CityWholesalerCoins += cost;
+                world.CoinsExternalOutflow += cost;  // <-- record external "burn" to wholesaler
+
 
                 int dueTick = tick + Mathf.CeilToInt(world.FoodLeadTimeSec);
                 world.PendingFoodDeliveries.Add((dueTick, qty, cost));

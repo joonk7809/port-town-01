@@ -1,4 +1,6 @@
-namespace PortTown01.Core
+using System;
+
+namespace PortTown01.Econ
 {
     public static class EconDefs
     {
