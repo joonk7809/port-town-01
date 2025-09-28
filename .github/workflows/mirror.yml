@@ -2,7 +2,7 @@ name: Mirror to Public Repo
 
 on:
   push:
-    branches: [ main ]   # change if your default branch is different
+    branches: [ main ]   # change if needed
   workflow_dispatch: {}
 
 permissions:
@@ -13,12 +13,17 @@ jobs:
   mirror:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (full history)
+      - name: Checkout (full history, no bot creds)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false   # <-- critical: don't set github-actions[bot] header
 
-      - name: Configure Git
+      - name: Remove any leftover auth header (belt & suspenders)
+        run: |
+          git config --global --unset-all http.https://github.com/.extraheader || true
+
+      - name: Configure Git identity
         run: |
           git config user.name  "Mirror Bot"
           git config user.email "mirror-bot@users.noreply.github.com"
@@ -26,7 +31,12 @@ jobs:
       - name: Push to mirror (HTTPS using PAT)
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
-          MIRROR_URL: ${{ secrets.MIRROR_URL }}
+          MIRROR_URL: ${{ secrets.MIRROR_URL }}   # e.g., https://github.com/<you>/<mirror>.git
         run: |
+          if [ -z "$GH_PAT" ] || [ -z "$MIRROR_URL" ]; then
+            echo "GH_PAT or MIRROR_URL is missing"; exit 1
+          fi
           MIRROR_AUTH="${MIRROR_URL/https:\/\//https:\/\/${GH_PAT}@}"
+          # sanity: show remote but hide token
+          echo "Pushing to ${MIRROR_URL}"
           git push --force --prune "$MIRROR_AUTH" +refs/heads/*:refs/heads/* +refs/tags/*:refs/tags/*
