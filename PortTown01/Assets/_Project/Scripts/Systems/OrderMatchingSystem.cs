@@ -92,6 +92,12 @@ namespace PortTown01.Systems
                 b.EscrowCoins -= coinsToSeller;
                 seller.Coins  += coinsToSeller;
 
+                if (a.Item == ItemType.Food)
+                {
+                    world.FoodSold += tradeQty;
+                    if (seller.IsVendor) world.VendorRevenue += coinsToSeller;
+                }
+
                 // --- Remove items from ask escrow ---
                 a.EscrowItems -= tradeQty;
 

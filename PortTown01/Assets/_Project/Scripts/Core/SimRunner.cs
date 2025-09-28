@@ -45,6 +45,8 @@ namespace PortTown01.Core
                 new NeedsDecaySystem(),
                 new DayPlanSystem(),
                 new EmploymentSystem(),
+
+                new PriceDynamicsSystem(),
                 
                 new DemoHarvestSystem(),
                 new FoodTradeSystem(),

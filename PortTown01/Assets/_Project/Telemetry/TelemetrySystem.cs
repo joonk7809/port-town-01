@@ -79,6 +79,9 @@ namespace PortTown01.Systems
             int revDock    = world.RevenueDock;
             int wagesHaul  = world.WagesHaul;
             int profit     = revDock - wagesHaul; // simple profit (no other costs yet)
+            
+            int foodPrice  = world.FoodPrice;
+            int cratePrice = world.CratePrice;
 
 
             Debug.Log(
@@ -91,7 +94,8 @@ namespace PortTown01.Systems
                 $"bossCoins={bossCoins} dockCoins={dockCoins} totalCoins={totalCoins} " +
                 $"loggers={loggers}/{workingLoggers} haulers={haulers}/{workingHaulers} " +
                 $"cratesShipped~={shippedCrates}" + 
-                $" cratesSold={cratesSold} revDock={revDock} wagesHaul={wagesHaul} profit={profit}"
+                $" cratesSold={cratesSold} revDock={revDock} wagesHaul={wagesHaul} profit={profit}" +
+                $" foodPrice={foodPrice} cratePrice={cratePrice}"
             );
         }
     }

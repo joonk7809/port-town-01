@@ -25,6 +25,14 @@ namespace PortTown01.Core
         public int RevenueDock = 0;        // coins paid by dock buyer to company (boss)
         public int WagesHaul = 0;          // coins paid out to haulers for delivery
 
+        // --- Live prices (mutable) ---
+        public int FoodPrice  = PortTown01.Core.EconDefs.FOOD_PRICE_BASE;
+        public int CratePrice = PortTown01.Core.EconDefs.CRATE_PRICE_BASE;
+
+        // --- Food sales ledger (cumulative) ---
+        public int FoodSold       = 0;  // total Food units sold via order book
+        public int VendorRevenue  = 0;  // coins received by vendor from Food sales
+
         public void Advance(int tickInc, float dt)
         {
             Tick += tickInc;

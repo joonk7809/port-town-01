@@ -2,7 +2,14 @@ namespace PortTown01.Core
 {
     public static class EconDefs
     {
-        public const int FOOD_PRICE  = 5;
-        public const int CRATE_PRICE = 25;
+        // Food (vendor asks / agent bids)
+        public const int FOOD_PRICE_BASE = 5;
+        public const int FOOD_PRICE_MIN  = 3;
+        public const int FOOD_PRICE_MAX  = 12;
+
+        // Crates (dock pays company)
+        public const int CRATE_PRICE_BASE = 25;
+        public const int CRATE_PRICE_MIN  = 15;
+        public const int CRATE_PRICE_MAX  = 40;
     }
 }

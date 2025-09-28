@@ -96,6 +96,10 @@ namespace PortTown01.Systems
             int wagesHaul  = world.WagesHaul;
             int profit     = revDock - wagesHaul;
 
+            int foodPrice  = world.FoodPrice;
+            int cratePrice = world.CratePrice;  
+
+
 
             if (!_wroteHeader)
             {
@@ -105,7 +109,8 @@ namespace PortTown01.Systems
                              "vendorInv,vendorEscrow,vendorForSale,vendorCoins," +
                              "bossCoins,dockCoins,totalCoins," +
                              "cratesShipped,loggers,workingLoggers,haulers,workingHaulers" + 
-                             "cratesSold,revDock,wagesHaul,profit";
+                             "cratesSold,revDock,wagesHaul,profit" +
+                             "foodPrice,cratePrice";
                 File.AppendAllText(_filePath, header + "\n", Encoding.UTF8);
                 Debug.Log($"[CSV] Snapshotting to: {_filePath}");
                 _wroteHeader = true;
