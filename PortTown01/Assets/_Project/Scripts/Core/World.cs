@@ -20,6 +20,11 @@ namespace PortTown01.Core
         public readonly List<Contract> Contracts = new();
         public int NextContractId = 1;
 
+        // --- Simple ledger (cumulative) ---
+        public int CratesSold = 0;         // total crates sold at dock
+        public int RevenueDock = 0;        // coins paid by dock buyer to company (boss)
+        public int WagesHaul = 0;          // coins paid out to haulers for delivery
+
         public void Advance(int tickInc, float dt)
         {
             Tick += tickInc;

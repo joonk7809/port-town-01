@@ -83,17 +83,34 @@ namespace PortTown01.Systems
                         int qty = a.Carry.Get(ItemType.Crate);
                         if (qty > 0 && a.Carry.TryRemove(ItemType.Crate, qty))
                         {
-                            // treat as sale to DockAuthority: pay hauler
-                            int owed = CRATE_PRICE * qty;
-                            int pay = Mathf.Min(owed, _dockBuyer.Coins);
-                            _dockBuyer.Coins -= pay;
-                            a.Coins += pay;
-                            // (optional) record shipped count somewhere
+                            // --- Company sale: Dock pays the Boss (company), not the hauler ---
+                            var boss = world.Agents.FirstOrDefault(x => x.IsEmployer);
+                            if (boss == null) boss = world.Agents.Where(x => !x.IsVendor).OrderByDescending(x => x.Coins).FirstOrDefault();
+
+                            int saleOwed = PortTown01.Core.EconDefs.CRATE_PRICE * qty;
+                            int salePaid = Mathf.Min(saleOwed, _dockBuyer.Coins);
+
+                            _dockBuyer.Coins -= salePaid;
+                            boss.Coins       += salePaid;
+
+                            world.CratesSold += qty;
+                            world.RevenueDock += salePaid;
+
+                            // --- Hauler piece-rate payout (from the Boss) ---
+                            const int HAUL_PAY_PER_CRATE = 3;   // tune
+                            int wageOwed = HAUL_PAY_PER_CRATE * qty;
+                            int wagePaid = Mathf.Min(wageOwed, boss.Coins);
+
+                            boss.Coins -= wagePaid;
+                            a.Coins    += wagePaid;
+
+                            world.WagesHaul += wagePaid;
                         }
 
                         st.P = Phase.ToMill;
                         break;
                     }
+
                 }
             }
         }

@@ -74,6 +74,13 @@ namespace PortTown01.Systems
             _prevDockCoins = dockCoins;
             int shippedCrates = EconDefs.CRATE_PRICE > 0 ? coinsOutDock / EconDefs.CRATE_PRICE : 0;
 
+            // Cumulative ledger from World
+            int cratesSold = world.CratesSold;
+            int revDock    = world.RevenueDock;
+            int wagesHaul  = world.WagesHaul;
+            int profit     = revDock - wagesHaul; // simple profit (no other costs yet)
+
+
             Debug.Log(
                 $"[TEL] t={world.SimTime:F1}s tick={world.Tick} agents={n} " +
                 $"avgFood={avgFood:F1} avgRest={avgRest:F1} items={millLogs + millPlanks} " +
@@ -83,7 +90,8 @@ namespace PortTown01.Systems
                 $"bids={bids} asks={asks} bestBid={bestBid} bestAsk={bestAsk} " +
                 $"bossCoins={bossCoins} dockCoins={dockCoins} totalCoins={totalCoins} " +
                 $"loggers={loggers}/{workingLoggers} haulers={haulers}/{workingHaulers} " +
-                $"cratesShipped~={shippedCrates}"
+                $"cratesShipped~={shippedCrates}" + 
+                $" cratesSold={cratesSold} revDock={revDock} wagesHaul={wagesHaul} profit={profit}"
             );
         }
     }

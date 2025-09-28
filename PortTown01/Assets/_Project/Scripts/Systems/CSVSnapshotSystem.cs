@@ -91,6 +91,12 @@ namespace PortTown01.Systems
             int haulers = world.Agents.Count(a => a.Role == JobRole.Hauler);
             int workingHaulers = world.Agents.Count(a => a.Role == JobRole.Hauler && a.Phase == DayPhase.Work);
 
+            int cratesSold = world.CratesSold;
+            int revDock    = world.RevenueDock;
+            int wagesHaul  = world.WagesHaul;
+            int profit     = revDock - wagesHaul;
+
+
             if (!_wroteHeader)
             {
                 var header = "tick,sim_s,tod,agents,avgFood,avgRest," +
@@ -98,7 +104,8 @@ namespace PortTown01.Systems
                              "bids,asks,bestBid,bestAsk," +
                              "vendorInv,vendorEscrow,vendorForSale,vendorCoins," +
                              "bossCoins,dockCoins,totalCoins," +
-                             "cratesShipped,loggers,workingLoggers,haulers,workingHaulers";
+                             "cratesShipped,loggers,workingLoggers,haulers,workingHaulers" + 
+                             "cratesSold,revDock,wagesHaul,profit";
                 File.AppendAllText(_filePath, header + "\n", Encoding.UTF8);
                 Debug.Log($"[CSV] Snapshotting to: {_filePath}");
                 _wroteHeader = true;
@@ -137,7 +144,11 @@ namespace PortTown01.Systems
                 loggers.ToString(inv),
                 workingLoggers.ToString(inv),
                 haulers.ToString(inv),
-                workingHaulers.ToString(inv)
+                workingHaulers.ToString(inv),
+                cratesSold.ToString(inv),
+                revDock.ToString(inv),
+                wagesHaul.ToString(inv),
+                profit.ToString(inv)
             );
             File.AppendAllText(_filePath, line + "\n", Encoding.UTF8);
         }

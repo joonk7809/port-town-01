@@ -137,6 +137,8 @@ namespace PortTown01.TelemetryUI
                     .FirstOrDefault();
                 if (dockBuyer != null)
                     GUILayout.Label($"DockBuyer: id={dockBuyer.Id} coins={dockBuyer.Coins}");
+                    GUILayout.Label($"Ledger: cratesSold={runner.WorldRef.CratesSold}  revDock={runner.WorldRef.RevenueDock}  wagesHaul={runner.WorldRef.WagesHaul}  profit={runner.WorldRef.RevenueDock - runner.WorldRef.WagesHaul}");
+;
 
             }
 
