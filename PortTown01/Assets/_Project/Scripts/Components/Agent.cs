@@ -29,6 +29,8 @@ namespace PortTown01.Core
 
         public UnityEngine.Vector3 HomePos;
         public DayPhase Phase = DayPhase.Leisure;
+        
+        public bool IsEmployer = false;
 
         //Jobs
         public JobRole Role = JobRole.None;   // e.g., Logger
