@@ -21,7 +21,7 @@ namespace PortTown01.Systems
             if (_logging == null)
                 _logging = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.Logging);
             if (_boss == null)
-                _boss = world.Agents.Where(a => !a.IsVendor).OrderByDescending(a => a.Coins).FirstOrDefault();
+                _boss = world.Agents.FirstOrDefault(a => a.IsEmployer);
 
             if (_logging == null || _boss == null) return;
 
