@@ -20,7 +20,7 @@ namespace PortTown01.Core
 
         [Header("Bootstrap")]
         [Tooltip("How many placeholder agents to spawn at start")]
-        public int bootstrapAgents = 20;
+        public int bootstrapAgents = 200;
 
         private World _world;
         private List<ISimSystem> _pipeline;
@@ -54,7 +54,7 @@ namespace PortTown01.Core
                 new DayPlanSystem(),
                 new EmploymentSystem(),
 
-                new PriceDynamicsSystem(),
+                new PriceElasticitySystem(),
                 new PlannerSystem(),
                 
                 new DemoHarvestSystem(),
@@ -76,7 +76,7 @@ namespace PortTown01.Core
                 new GuardrailsSystem()
             };
 
-            BootstrapAgents(200);
+            BootstrapAgents(bootstrapAgents);
             BootstrapWorld();
         }
 

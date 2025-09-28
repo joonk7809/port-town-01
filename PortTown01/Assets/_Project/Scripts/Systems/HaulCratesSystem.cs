@@ -10,7 +10,6 @@ namespace PortTown01.Systems
     {
         public string Name => "HaulCrates";
 
-        private const int CRATE_PRICE = 25;   // coins per crate, paid by dock buyer
 
         private Worksite _millSite;
         private Worksite _dockSite;

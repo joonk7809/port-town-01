@@ -101,7 +101,6 @@ namespace PortTown01.Systems
                         {
                             if (a.Carry.TryRemove(ItemType.Log, qty))
                                 _mill.Storage.Add(ItemType.Log, qty);
-                            _mill.Storage.Add(ItemType.Log, qty);
 
                             // --- PAY PIECE-RATE ON DELIVERY ---
                             var k = world.Contracts.FirstOrDefault(c =>

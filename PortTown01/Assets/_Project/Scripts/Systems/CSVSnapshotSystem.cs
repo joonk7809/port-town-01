@@ -119,10 +119,10 @@ namespace PortTown01.Systems
                              "bids,asks,bestBid,bestAsk," +
                              "vendorInv,vendorEscrow,vendorForSale,vendorCoins," +
                              "bossCoins,dockCoins,totalCoins," +
-                             "cratesShipped,loggers,workingLoggers,haulers,workingHaulers" + 
-                             "cratesSold,revDock,wagesHaul,profit" +
-                             "foodPrice,cratePrice" + 
-                             "intentWork,intentEat,intentSleep,intentLeisure";
+                             "cratesShipped,loggers,workingLoggers,haulers,workingHaulers," + 
+                             "cratesSold,revDock,wagesHaul,profit," +
+                             "foodPrice,cratePrice," + 
+                             "intentWork,intentEat,intentSleep,intentLeisure,";
                 File.AppendAllText(_filePath, header + "\n", Encoding.UTF8);
                 Debug.Log($"[CSV] Snapshotting to: {_filePath}");
                 _wroteHeader = true;
@@ -165,7 +165,14 @@ namespace PortTown01.Systems
                 cratesSold.ToString(inv),
                 revDock.ToString(inv),
                 wagesHaul.ToString(inv),
-                profit.ToString(inv)
+                profit.ToString(inv),
+                foodPrice.ToString(inv),
+                cratePrice.ToString(inv),
+                intentWork.ToString(inv),
+                intentEat.ToString(inv),
+                intentSleep.ToString(inv),
+                intentLeisure.ToString(inv)
+
             );
             File.AppendAllText(_filePath, line + "\n", Encoding.UTF8);
         }
