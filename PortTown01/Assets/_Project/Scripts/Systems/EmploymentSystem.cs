@@ -24,6 +24,16 @@ namespace PortTown01.Systems
                 _boss = world.Agents.FirstOrDefault(a => a.IsEmployer);
 
             if (_logging == null || _boss == null) return;
+            
+            // If any active employment contracts point to the wrong employer, fix them
+            foreach (var k in world.Contracts.Where(c => c.Type == ContractType.Employment &&
+                                             c.State == ContractState.Active &&
+                                             c.EmployerId != _boss.Id))
+            {
+                k.EmployerId = _boss.Id;
+                var emp = world.Agents.FirstOrDefault(a => a.Id == k.EmployeeId);
+                if (emp != null) emp.EmployerId = _boss.Id;
+            }
 
             // Ensure TARGET_LOGGERS hired
             var currentLoggers = world.Agents.Where(a => a.Role == JobRole.Logger).ToList();
