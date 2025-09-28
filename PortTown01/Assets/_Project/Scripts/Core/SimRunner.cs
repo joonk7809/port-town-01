@@ -48,6 +48,7 @@ namespace PortTown01.Core
                 
                 new DemoHarvestSystem(),
                 new FoodTradeSystem(),
+                new HaulCratesSystem(),
                 new MovementSystem(),
                 new SleepSystem(),
                 
@@ -214,7 +215,8 @@ namespace PortTown01.Core
                 TargetPos = new Vector3(22f, 0f, 0f),
                 SpeedMps = 0f,
                 Coins = 5000,
-                AllowWander = false
+                AllowWander = false,
+                IsEmployer = true
             };
             _world.Agents.Add(boss);
             SpawnView(boss);

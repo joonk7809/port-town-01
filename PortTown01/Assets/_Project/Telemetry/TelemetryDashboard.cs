@@ -121,6 +121,23 @@ namespace PortTown01.TelemetryUI
                 GUILayout.EndScrollView();
                 GUILayout.EndVertical();
                 GUILayout.Space(pad);
+
+                // Mill inventories (incl. crates)
+                var mill = runner.WorldRef.Buildings.FirstOrDefault(b => b.Type == BuildingType.Mill);
+                int millLogs   = mill?.Storage.Get(ItemType.Log)   ?? 0;
+                int millPlanks = mill?.Storage.Get(ItemType.Plank) ?? 0;
+                int millCrates = mill?.Storage.Get(ItemType.Crate) ?? 0;
+                GUILayout.Label($"Mill: logs={millLogs} planks={millPlanks} crates={millCrates}");
+
+                // Dock & buyer
+                var dock = runner.WorldRef.Buildings.FirstOrDefault(b => b.Type == BuildingType.Dock);
+                var dockBuyer = runner.WorldRef.Agents
+                    .Where(a => !a.IsVendor && a.SpeedMps == 0f)
+                    .OrderBy(a => dock == null ? 9999f : Vector3.Distance(a.Pos, dock.Pos))
+                    .FirstOrDefault();
+                if (dockBuyer != null)
+                    GUILayout.Label($"DockBuyer: id={dockBuyer.Id} coins={dockBuyer.Coins}");
+
             }
 
             // ORDER BOOK
@@ -199,7 +216,10 @@ namespace PortTown01.TelemetryUI
                     sb.Append("carry:["); sb.Append(DictString(a.Carry)); sb.Append("] ");
                     float dist = Vector3.Distance(a.Pos, a.TargetPos);
                     sb.Append($"pos({a.Pos.x:0.0},{a.Pos.z:0.0})->{dist:0.0}m");
+                    sb.Append($" Kg:{a.Carry.Kg:0.0} ");
+                    sb.Append($" Cr:{a.Carry.Get(ItemType.Crate)} ");
                     GUILayout.Label(sb.ToString());
+                    
                 }
                 GUILayout.EndScrollView();
                 GUILayout.EndVertical();

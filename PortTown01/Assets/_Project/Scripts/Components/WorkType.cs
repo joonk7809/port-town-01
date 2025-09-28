@@ -1,4 +1,5 @@
 namespace PortTown01.Core
 {
-    public enum WorkType { Logging, Milling, Hauling, Guarding, Trading }
+    public enum WorkType { Logging, Milling, Hauling, DockLoading, Guarding, Trading }
 }
+ 
