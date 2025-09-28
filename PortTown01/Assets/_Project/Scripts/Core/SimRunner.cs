@@ -20,7 +20,7 @@ namespace PortTown01.Core
 
         [Header("Bootstrap")]
         [Tooltip("How many placeholder agents to spawn at start")]
-        public int bootstrapAgents = 200;
+        [SerializeField] public int bootstrapAgents = 200;
 
         private World _world;
         private List<ISimSystem> _pipeline;
