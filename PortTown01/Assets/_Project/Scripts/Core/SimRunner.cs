@@ -25,7 +25,7 @@ namespace PortTown01.Core
         private float _accum;
         private World _world;
         private List<ISimSystem> _pipeline;
-        
+
         public World WorldRef => _world;   // read-only access for other systems/HUD
 
 
@@ -52,7 +52,9 @@ namespace PortTown01.Core
                 new OrderMatchingSystem(),
                 new EatingSystem(),
                 new MillProcessingSystem(),
-                new TelemetrySystem()
+                new TelemetrySystem(),
+                new CSVSnapshotSystem(),
+                new AuditSystem()
             };
 
             BootstrapAgents(bootstrapAgents);
