@@ -1,0 +1,32 @@
+name: Mirror to Public Repo
+
+on:
+  push:
+    branches: [ main ]   # change if your default branch is different
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name  "Mirror Bot"
+          git config user.email "mirror-bot@users.noreply.github.com"
+
+      - name: Push to mirror (HTTPS using PAT)
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          MIRROR_URL: ${{ secrets.MIRROR_URL }}
+        run: |
+          MIRROR_AUTH="${MIRROR_URL/https:\/\//https:\/\/${GH_PAT}@}"
+          git push --force --prune "$MIRROR_AUTH" +refs/heads/*:refs/heads/* +refs/tags/*:refs/tags/*
