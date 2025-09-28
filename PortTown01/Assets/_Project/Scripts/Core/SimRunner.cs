@@ -70,6 +70,7 @@ namespace PortTown01.Core
                 new CratePackingSystem(),
 
                 new TelemetrySystem(),
+                new AgentCSVSnapshotSystem(),
                 new CSVSnapshotSystem(),
                 new AuditSystem(),
                 new GuardrailsSystem()
