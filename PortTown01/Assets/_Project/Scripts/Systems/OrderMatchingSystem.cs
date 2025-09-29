@@ -51,7 +51,6 @@ namespace PortTown01.Systems
                 int maxByQty = Mathf.Min(b.Qty, a.Qty);
                 if (maxByQty <= 0)
                 {
-                    // Advance whichever is empty
                     if (b.Qty <= 0) bi++;
                     if (a.Qty <= 0) ai++;
                     continue;
@@ -59,35 +58,32 @@ namespace PortTown01.Systems
 
                 // --- Escrow limits ---
                 int price = Mathf.Max(1, a.UnitPrice);
-                int byCoins = b.EscrowCoins / price;                   // how many units escrow can afford
-                int byAskEscrow = Mathf.Max(0, a.EscrowItems);         // how many units are escrowed for delivery
+                int byCoins = b.EscrowCoins / price;         // how many units escrow can afford
+                int byAskEscrow = Mathf.Max(0, a.EscrowItems);
                 int tradeCap = Mathf.Min(maxByQty, Mathf.Min(byCoins, byAskEscrow));
 
-                // Decide which side is blocking if nothing affordable
                 if (tradeCap <= 0)
                 {
                     if (byCoins <= 0)
                     {
-                        // Buyer has no spendable escrow at this price → refund and remove bid
                         SafeCancelBid(world, b, buyer);
-                        bi++;   // move to next bid
-                        continue; // keep same ask
+                        bi++;
+                        continue;
                     }
                     if (byAskEscrow <= 0)
                     {
-                        // Seller has no escrowed items (stale ask) → return any residual escrowed items and remove ask
                         SafeCancelAsk(world, a, seller);
-                        ai++;   // move to next ask
-                        continue; // keep same bid
+                        ai++;
+                        continue;
                     }
-                    // If we got here, it's a logic edge; advance both to avoid deadlock
+                    // Fallback to avoid deadlock
                     SafeCancelBid(world, b, buyer);
                     SafeCancelAsk(world, a, seller);
                     bi++; ai++;
                     continue;
                 }
 
-                // --- Capacity limit on buyer (Food is 0 kg now, but keep generic) ---
+                // --- Capacity limit on buyer ---
                 int carryFit = tradeCap;
                 float unitKg = ItemDefs.KgPerUnit(a.Item);
                 if (unitKg > 0f)
@@ -103,7 +99,6 @@ namespace PortTown01.Systems
 
                 if (carryFit <= 0)
                 {
-                    // Buyer can't carry any: refund and drop this bid, keep ask
                     SafeCancelBid(world, b, buyer);
                     bi++;
                     continue;
@@ -113,24 +108,17 @@ namespace PortTown01.Systems
                 int tradeCoins = tradeQty * price;
 
                 // --- Settle: escrow coins -> seller; escrow items -> buyer ---
-                // Coins: debit bid escrow (never below 0), credit seller
                 Debug.Assert(b.EscrowCoins >= tradeCoins, "[MATCH] escrow underflow pre-debit");
-                Ledger.Transfer(world, ref b.EscrowCoins, ref seller.Coins, tradeCoins, LedgerWriter.OrderMatch, $"bid#{b.Id}->seller#{seller.Id}");
+                b.EscrowCoins -= tradeCoins;
+                seller.Coins  += tradeCoins;
                 if (b.EscrowCoins < 0) b.EscrowCoins = 0;
-
-                if (b.Qty <= 0 && b.EscrowCoins > 0)
-                {
-                    Ledger.Transfer(world, ref b.EscrowCoins, ref buyer.Coins, b.EscrowCoins, LedgerWriter.OrderMatch, "refund");
-                    // b.EscrowCoins now 0 by construction
-                }
-
 
                 // Items: reduce ask escrow and deliver to buyer
                 a.EscrowItems -= tradeQty;
-                if (a.EscrowItems < 0) a.EscrowItems = 0; // defensive
+                if (a.EscrowItems < 0) a.EscrowItems = 0;
                 buyer.Carry.Add(a.Item, tradeQty);
 
-                // Ledgers
+                // Counters
                 if (a.Item == ItemType.Food)
                 {
                     world.FoodSold += tradeQty;
@@ -141,11 +129,11 @@ namespace PortTown01.Systems
                 b.Qty -= tradeQty;
                 a.Qty -= tradeQty;
 
-                // If the bid is fully filled, refund any residual escrow to the bidder
+                // Refund any residual escrow if bid is now fully filled
                 if (b.Qty <= 0 && b.EscrowCoins > 0)
                 {
-                    buyer.Coins    += b.EscrowCoins;
-                    b.EscrowCoins   = 0;
+                    buyer.Coins += b.EscrowCoins;
+                    b.EscrowCoins = 0;
                 }
 
                 // Advance indices if an order filled
@@ -153,8 +141,7 @@ namespace PortTown01.Systems
                 if (a.Qty <= 0) ai++;
             }
 
-            // Note: expiry/pruning of stale orders should be handled in the posting systems (e.g., FoodTradeSystem).
-            // If you also prune here, ALWAYS refund bid escrow and return ask escrowed items to seller.
+            // Note: expiry/pruning of stale orders should be handled in posting systems.
         }
 
         private static void SafeCancelBid(World world, Offer bid, Agent buyer)
@@ -173,7 +160,6 @@ namespace PortTown01.Systems
             if (ask == null) return;
             if (ask.EscrowItems > 0 && seller != null)
             {
-                // Return any still-escrowed items to the seller
                 seller.Carry.Add(ask.Item, ask.EscrowItems);
                 ask.EscrowItems = 0;
             }

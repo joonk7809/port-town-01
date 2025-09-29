@@ -11,7 +11,6 @@ namespace PortTown01.Systems
     {
         public string Name => "HaulCrates";
 
-
         private Worksite _millSite;
         private Worksite _dockSite;
         private Building _mill;
@@ -21,6 +20,8 @@ namespace PortTown01.Systems
         private class S { public Phase P = Phase.ToMill; }
         private readonly Dictionary<int, S> _s = new();
 
+        private const int HAUL_PAY_PER_CRATE = 3;   // tune piece-rate
+
         public void Tick(World world, int _, float dt)
         {
             // cache refs
@@ -29,7 +30,8 @@ namespace PortTown01.Systems
             if (_dockSite == null) _dockSite = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.DockLoading);
             if (_dockBuyer == null)
                 _dockBuyer = world.Agents.OrderByDescending(a => a.Coins)
-                    .FirstOrDefault(a => !a.IsVendor && a.SpeedMps == 0f && Vector3.Distance(a.Pos, _dockSite?.StationPos ?? Vector3.zero) < 6f);
+                    .FirstOrDefault(a => !a.IsVendor && a.SpeedMps == 0f &&
+                                         Vector3.Distance(a.Pos, _dockSite?.StationPos ?? Vector3.zero) < 6f);
 
             if (_mill == null || _millSite == null || _dockSite == null || _dockBuyer == null) return;
 
@@ -60,7 +62,6 @@ namespace PortTown01.Systems
                             st.P = Phase.ToDock; break;
                         }
 
-                        // take as many as fit (at least 1)
                         int want = Mathf.Max(1, maxCarry - carried);
                         int take = Mathf.Min(want, _mill.Storage.Get(ItemType.Crate));
                         if (take > 0 && _mill.Storage.TryRemove(ItemType.Crate, take))
@@ -100,37 +101,28 @@ namespace PortTown01.Systems
                             if (salePaid < saleOwed)
                                 Debug.LogWarning($"[DOCK] Underpaid sale: owed={saleOwed}, paid={salePaid}, buyerCoins={_dockBuyer.Coins}");
 
-                    #if LEDGER_ENABLED
-                            Ledger.Transfer(world, ref _dockBuyer.Coins, ref boss.Coins, salePaid, LedgerWriter.DockSale, $"crate sale qty={qty}");
-                    #else
-                            _dockBuyer.Coins -= salePaid;
-                            boss.Coins       += salePaid;
-                    #endif
+                            // Transfer dock → boss
+                            Ledger.Transfer(world, ref _dockBuyer.Coins, ref boss.Coins,
+                                            salePaid, LedgerWriter.DockSale, $"crate sale qty={qty}");
 
                             world.CratesSold  += qty;
                             world.RevenueDock += salePaid;
 
                             // --- Hauler piece-rate payout (from the Boss) ---
-                            const int HAUL_PAY_PER_CRATE = 3;   // tune
                             int wageOwed = HAUL_PAY_PER_CRATE * qty;
                             int wagePaid = Mathf.Min(wageOwed, boss.Coins);
 
-                    #if LEDGER_ENABLED
-                            Ledger.Transfer(world, ref boss.Coins, ref a.Coins, wagePaid, LedgerWriter.WagePayout, $"haul pay qty={qty}");
-                    #else
-                            boss.Coins -= wagePaid;
-                            a.Coins    += wagePaid;
-                    #endif
-
-                            world.WagesHaul += wagePaid;
+                            if (wagePaid > 0)
+                            {
+                                Ledger.Transfer(world, ref boss.Coins, ref a.Coins,
+                                                wagePaid, LedgerWriter.WagePayout, $"haul pay qty={qty}");
+                                world.WagesHaul += wagePaid;
+                            }
                         }
 
                         st.P = Phase.ToMill;
-                        break; // <— ensure the final case cannot fall through
+                        break;
                     }
-
-
-
                 }
             }
         }
