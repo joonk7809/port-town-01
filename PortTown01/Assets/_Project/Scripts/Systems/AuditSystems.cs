@@ -27,9 +27,11 @@ namespace PortTown01.Systems
         private long _prevInflow     = 0;             // CoinsExternalInflow at last audit step
         private long _prevOutflow    = 0;             // CoinsExternalOutflow at last audit step
 
-        // --- NEW: Per-component deltas (agents / escrow) ---
+
+        // --- NEW: Per-component deltas (agents / escrow / city) ---
         private int _prevAgentCoinsSum  = int.MinValue;
         private int _prevEscrowCoinsSum = int.MinValue;
+        private int _prevCityCoinsSum   = int.MinValue;
 
         // --- Stuck detection snapshot ---
         private int   _prevForestStock   = int.MinValue;
@@ -50,6 +52,7 @@ namespace PortTown01.Systems
             // Per-step deltas for components
             int dAgents = (_prevAgentCoinsSum  == int.MinValue) ? 0 : (agentCoins  - _prevAgentCoinsSum);
             int dEscrow = (_prevEscrowCoinsSum == int.MinValue) ? 0 : (escrowCoins - _prevEscrowCoinsSum);
+            int dCity   = (_prevCityCoinsSum   == int.MinValue) ? 0 : (cityCoins   - _prevCityCoinsSum); 
 
             long currentTotal = (long)agentCoins + escrowCoins + cityCoins;
             long inflow       = world.CoinsExternalInflow;
@@ -81,8 +84,9 @@ namespace PortTown01.Systems
                 {
                     Debug.LogError(
                         $"[AUDIT][MONEY] Non-conservation: now={currentTotal} vs expected={expectedNow} (Δ={delta}). " +
-                        $"components: agents={agentCoins} (ΔA={dAgents}), escrow={escrowCoins} (ΔE={dEscrow}), city={cityCoins}; " +
-                        $"step Δin={dIn}, Δout={dOut}, prevTotal={_prevTotalMoney}, inflowCum={inflow}, outflowCum={outflow}");
+                        $"components: agents={agentCoins} (ΔA={dAgents}), escrow={escrowCoins} (ΔE={dEscrow}), " +
+                        $"city={cityCoins} (ΔC={dCity}); step Δin={dIn}, Δout={dOut}, prevTotal={_prevTotalMoney}, " +
+                        $"inflowCum={inflow}, outflowCum={outflow}");
                     world.MoneyResidualAbsMax = Mathf.Max(world.MoneyResidualAbsMax, Mathf.Abs((int)delta));
                 }
 
@@ -95,6 +99,7 @@ namespace PortTown01.Systems
             // advance per-component snapshots (do this every tick, including first)
             _prevAgentCoinsSum  = agentCoins;
             _prevEscrowCoinsSum = escrowCoins;
+            _prevCityCoinsSum = cityCoins;
 
             if (VERBOSE_OK_SUMMARY)
             {

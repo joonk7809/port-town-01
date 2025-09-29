@@ -77,9 +77,12 @@ namespace PortTown01.Systems
             int dockCoins = dockBuyer?.Coins ?? 0;
 
             // money
+            // money
             int agentCoins = world.Agents.Sum(a => a.Coins);
-            int bidEscrow  = world.FoodBook.Bids.Where(b=>b.Qty>0).Sum(b => b.EscrowCoins);
-            int totalCoins = agentCoins + bidEscrow;
+            int bidEscrow  = world.FoodBook.Bids.Where(b => b.Qty > 0).Sum(b => b.EscrowCoins);
+            int cityCoins  = world.CityBudget;                // NEW
+            int totalCoins = agentCoins + bidEscrow;          // (kept as-is: non-city total)
+
 
             // estimate shipped crates by dock coin outflow
             int cratesShipped = (_prevCratesSold == int.MinValue)
@@ -119,7 +122,8 @@ namespace PortTown01.Systems
                              "cratesShipped,loggers,workingLoggers,haulers,workingHaulers," + 
                              "cratesSold,revDock,wagesHaul,profit," +
                              "foodPrice,cratePrice," + 
-                             "intentWork,intentEat,intentSleep,intentLeisure,";
+                             "intentWork,intentEat,intentSleep,intentLeisure," +
+                             "time,agentsCoins,escrowCoins,cityCoins";
                 File.AppendAllText(_filePath, header + "\n", Encoding.UTF8);
                 Debug.Log($"[CSV] Snapshotting to: {_filePath}");
                 _wroteHeader = true;
@@ -168,7 +172,11 @@ namespace PortTown01.Systems
                 intentWork.ToString(inv),
                 intentEat.ToString(inv),
                 intentSleep.ToString(inv),
-                intentLeisure.ToString(inv)
+                
+                tod,
+                agentCoins.ToString(inv),
+                bidEscrow.ToString(inv),
+                cityCoins.ToString(inv)
 
             );
             File.AppendAllText(_filePath, line + "\n", Encoding.UTF8);
