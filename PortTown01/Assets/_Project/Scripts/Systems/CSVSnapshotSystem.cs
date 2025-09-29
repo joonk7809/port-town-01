@@ -22,10 +22,8 @@ namespace PortTown01.Systems
         private int _prevMillLogs = int.MinValue;
         private int _prevMillPlanks = int.MinValue;
         private int _prevMillCrates = int.MinValue;
-        private int _prevDockCoins = int.MinValue;
 
         private int _prevCratesSold = int.MinValue;
-
 
         public void Tick(World world, int tick, float dt)
         {
@@ -77,19 +75,16 @@ namespace PortTown01.Systems
             int dockCoins = dockBuyer?.Coins ?? 0;
 
             // money
-            // money
             int agentCoins = world.Agents.Sum(a => a.Coins);
-            int bidEscrow  = world.FoodBook.Bids.Where(b => b.Qty > 0).Sum(b => b.EscrowCoins);
-            int cityCoins  = world.CityBudget;                // NEW
-            int totalCoins = agentCoins + bidEscrow;          // (kept as-is: non-city total)
-
+            int bidEscrow  = world.FoodBook.Bids.Where(b=>b.Qty>0).Sum(b => b.EscrowCoins);
+            int cityCoins  = world.CityBudget;
+            int totalCoins = agentCoins + bidEscrow; // (kept for continuity; city in separate column)
 
             // estimate shipped crates by dock coin outflow
             int cratesShipped = (_prevCratesSold == int.MinValue)
                 ? 0
                 : (world.CratesSold - _prevCratesSold);
             _prevCratesSold = world.CratesSold;
-
 
             int loggers = world.Agents.Count(a => a.Role == JobRole.Logger);
             int workingLoggers = world.Agents.Count(a => a.Role == JobRole.Logger && a.Phase == DayPhase.Work);
@@ -108,10 +103,6 @@ namespace PortTown01.Systems
             int intentSleep   = world.Agents.Count(a => a.Intent == PortTown01.Core.AgentIntent.Sleep);
             int intentLeisure = world.Agents.Count(a => a.Intent == PortTown01.Core.AgentIntent.Leisure);
 
-            
-
-
-
             if (!_wroteHeader)
             {
                 var header = "tick,sim_s,tod,agents,avgFood,avgRest," +
@@ -123,7 +114,7 @@ namespace PortTown01.Systems
                              "cratesSold,revDock,wagesHaul,profit," +
                              "foodPrice,cratePrice," + 
                              "intentWork,intentEat,intentSleep,intentLeisure," +
-                             "time,agentsCoins,escrowCoins,cityCoins,";
+                             "time,agentsCoins,escrowCoins,cityCoins";
                 File.AppendAllText(_filePath, header + "\n", Encoding.UTF8);
                 Debug.Log($"[CSV] Snapshotting to: {_filePath}");
                 _wroteHeader = true;
@@ -171,12 +162,14 @@ namespace PortTown01.Systems
                 cratePrice.ToString(inv),
                 intentWork.ToString(inv),
                 intentEat.ToString(inv),
-                intentSleep.ToString(inv),             
+                intentSleep.ToString(inv),
+                intentLeisure.ToString(inv),
+
+                // NEW: time, agentsCoins, escrowCoins, cityCoins (parity with Audit)
                 tod,
                 agentCoins.ToString(inv),
                 bidEscrow.ToString(inv),
                 cityCoins.ToString(inv)
-
             );
             File.AppendAllText(_filePath, line + "\n", Encoding.UTF8);
         }

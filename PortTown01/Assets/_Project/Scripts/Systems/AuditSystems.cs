@@ -14,21 +14,15 @@ namespace PortTown01.Systems
         public string Name => "Audit";
 
         // --- Tunables ---
-        private const float CHECK_EVERY_SEC    = 1.0f; // kept for readability; we gate by tick
-        private const float STUCK_WINDOW_SEC   = 10.0f;
+        private const float STUCK_WINDOW_SEC = 10.0f;
         private const bool  VERBOSE_OK_SUMMARY = false;
-
-        // --- Baseline (for info only) ---
-        private bool _haveBaseline = false;
-        private long _baselineCoins = 0; // includes agents + escrow + CityBudget at t=0
 
         // --- Incremental reconciliation state ---
         private long _prevTotalMoney = long.MinValue; // agents + escrow + CityBudget at last audit step
         private long _prevInflow     = 0;             // CoinsExternalInflow at last audit step
         private long _prevOutflow    = 0;             // CoinsExternalOutflow at last audit step
 
-
-        // --- NEW: Per-component deltas (agents / escrow / city) ---
+        // --- Per-component deltas (agents / escrow / city) ---
         private int _prevAgentCoinsSum  = int.MinValue;
         private int _prevEscrowCoinsSum = int.MinValue;
         private int _prevCityCoinsSum   = int.MinValue;
@@ -47,12 +41,12 @@ namespace PortTown01.Systems
             // ---------- 1) MONEY CONSERVATION (incremental) ----------
             int agentCoins  = world.Agents.Sum(a => a.Coins);
             int escrowCoins = world.FoodBook.Bids.Where(b => b.Qty > 0).Sum(b => b.EscrowCoins);
-            int cityCoins   = world.CityBudget; // INT; includes unallocated city funds
+            int cityCoins   = world.CityBudget;
 
-            // Per-step deltas for components
+            // Per-step deltas for components (first tick treated as 0)
             int dAgents = (_prevAgentCoinsSum  == int.MinValue) ? 0 : (agentCoins  - _prevAgentCoinsSum);
             int dEscrow = (_prevEscrowCoinsSum == int.MinValue) ? 0 : (escrowCoins - _prevEscrowCoinsSum);
-            int dCity   = (_prevCityCoinsSum   == int.MinValue) ? 0 : (cityCoins   - _prevCityCoinsSum); 
+            int dCity   = (_prevCityCoinsSum   == int.MinValue) ? 0 : (cityCoins   - _prevCityCoinsSum);
 
             long currentTotal = (long)agentCoins + escrowCoins + cityCoins;
             long inflow       = world.CoinsExternalInflow;
@@ -66,8 +60,6 @@ namespace PortTown01.Systems
                 _prevInflow     = inflow;
                 _prevOutflow    = outflow;
 
-                _baselineCoins  = currentTotal;
-                _haveBaseline   = true;
                 expectedNow     = currentTotal;
 
                 Debug.Log($"[AUDIT] Baseline coins set: {currentTotal} (agents={agentCoins}, escrow={escrowCoins}, city={cityCoins})");
@@ -84,9 +76,8 @@ namespace PortTown01.Systems
                 {
                     Debug.LogError(
                         $"[AUDIT][MONEY] Non-conservation: now={currentTotal} vs expected={expectedNow} (Δ={delta}). " +
-                        $"components: agents={agentCoins} (ΔA={dAgents}), escrow={escrowCoins} (ΔE={dEscrow}), " +
-                        $"city={cityCoins} (ΔC={dCity}); step Δin={dIn}, Δout={dOut}, prevTotal={_prevTotalMoney}, " +
-                        $"inflowCum={inflow}, outflowCum={outflow}");
+                        $"components: agents={agentCoins} (ΔA={dAgents}), escrow={escrowCoins} (ΔE={dEscrow}), city={cityCoins} (ΔC={dCity}); " +
+                        $"step Δin={dIn}, Δout={dOut}, prevTotal={_prevTotalMoney}, inflowCum={inflow}, outflowCum={outflow}");
                     world.MoneyResidualAbsMax = Mathf.Max(world.MoneyResidualAbsMax, Mathf.Abs((int)delta));
                 }
 
@@ -99,7 +90,7 @@ namespace PortTown01.Systems
             // advance per-component snapshots (do this every tick, including first)
             _prevAgentCoinsSum  = agentCoins;
             _prevEscrowCoinsSum = escrowCoins;
-            _prevCityCoinsSum = cityCoins;
+            _prevCityCoinsSum   = cityCoins;
 
             if (VERBOSE_OK_SUMMARY)
             {
