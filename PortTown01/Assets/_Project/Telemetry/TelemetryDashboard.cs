@@ -139,7 +139,15 @@ namespace PortTown01.TelemetryUI
                     GUILayout.Label($"DockBuyer: id={dockBuyer.Id} coins={dockBuyer.Coins}");
                     GUILayout.Label($"Ledger: cratesSold={runner.WorldRef.CratesSold}  revDock={runner.WorldRef.RevenueDock}  wagesHaul={runner.WorldRef.WagesHaul}  profit={runner.WorldRef.RevenueDock - runner.WorldRef.WagesHaul}");
                     GUILayout.Label($"Prices: Food={runner.WorldRef.FoodPrice}  Crate={runner.WorldRef.CratePrice}");
-;
+                
+                // --- Money summary (parity with Audit: agents + escrow + city) ---
+                int agentsCoinsTotal = w.Agents.Sum(a => a.Coins);
+                int escrowCoinsTotal = w.FoodBook.Bids.Where(o => o.Qty > 0).Sum(o => o.EscrowCoins);
+                int cityCoinsTotal   = w.CityBudget;
+                int totalCoinsNow    = agentsCoinsTotal + escrowCoinsTotal + cityCoinsTotal;
+
+                GUILayout.Label($"Money: agents={agentsCoinsTotal}  escrow={escrowCoinsTotal}  city={cityCoinsTotal}  total={totalCoinsNow}");
+
 
             }
 

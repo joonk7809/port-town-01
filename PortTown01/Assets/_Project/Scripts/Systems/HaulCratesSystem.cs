@@ -84,16 +84,30 @@ namespace PortTown01.Systems
                         if (qty > 0 && a.Carry.TryRemove(ItemType.Crate, qty))
                         {
                             // --- Company sale: Dock pays the Boss (company), not the hauler ---
-                            var boss = world.Agents.FirstOrDefault(x => x.IsEmployer);
-                            if (boss == null) boss = world.Agents.Where(x => !x.IsVendor).OrderByDescending(x => x.Coins).FirstOrDefault();
+                            var boss = world.Agents.FirstOrDefault(x => x.IsEmployer)
+                                ?? world.Agents.Where(x => !x.IsVendor).OrderByDescending(x => x.Coins).FirstOrDefault();
+
+                            if (boss == null)
+                            {
+                                Debug.LogError("[HAUL] No boss/company found for crate sale settlement.");
+                                st.P = Phase.ToMill;
+                                break;
+                            }
 
                             int saleOwed = world.CratePrice * qty;
                             int salePaid = Mathf.Min(saleOwed, _dockBuyer.Coins);
 
+                            if (salePaid < saleOwed)
+                                Debug.LogWarning($"[DOCK] Underpaid sale: owed={saleOwed}, paid={salePaid}, buyerCoins={_dockBuyer.Coins}");
+
+                    #if LEDGER_ENABLED
+                            Ledger.Transfer(world, ref _dockBuyer.Coins, ref boss.Coins, salePaid, LedgerWriter.DockSale, $"crate sale qty={qty}");
+                    #else
                             _dockBuyer.Coins -= salePaid;
                             boss.Coins       += salePaid;
+                    #endif
 
-                            world.CratesSold += qty;
+                            world.CratesSold  += qty;
                             world.RevenueDock += salePaid;
 
                             // --- Hauler piece-rate payout (from the Boss) ---
@@ -101,16 +115,21 @@ namespace PortTown01.Systems
                             int wageOwed = HAUL_PAY_PER_CRATE * qty;
                             int wagePaid = Mathf.Min(wageOwed, boss.Coins);
 
+                    #if LEDGER_ENABLED
+                            Ledger.Transfer(world, ref boss.Coins, ref a.Coins, wagePaid, LedgerWriter.WagePayout, $"haul pay qty={qty}");
+                    #else
                             boss.Coins -= wagePaid;
                             a.Coins    += wagePaid;
+                    #endif
 
                             world.WagesHaul += wagePaid;
-
                         }
 
                         st.P = Phase.ToMill;
-                        break;
+                        break; // <— ensure the final case cannot fall through
                     }
+
+
 
                 }
             }

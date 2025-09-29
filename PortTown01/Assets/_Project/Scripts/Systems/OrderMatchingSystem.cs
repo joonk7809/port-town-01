@@ -114,9 +114,16 @@ namespace PortTown01.Systems
 
                 // --- Settle: escrow coins -> seller; escrow items -> buyer ---
                 // Coins: debit bid escrow (never below 0), credit seller
-                b.EscrowCoins -= tradeCoins;
-                if (b.EscrowCoins < 0) b.EscrowCoins = 0; // defensive; should not happen given byCoins cap
-                seller.Coins  += tradeCoins;
+                Debug.Assert(b.EscrowCoins >= tradeCoins, "[MATCH] escrow underflow pre-debit");
+                Ledger.Transfer(world, ref b.EscrowCoins, ref seller.Coins, tradeCoins, LedgerWriter.OrderMatch, $"bid#{b.Id}->seller#{seller.Id}");
+                if (b.EscrowCoins < 0) b.EscrowCoins = 0;
+
+                if (b.Qty <= 0 && b.EscrowCoins > 0)
+                {
+                    Ledger.Transfer(world, ref b.EscrowCoins, ref buyer.Coins, b.EscrowCoins, LedgerWriter.OrderMatch, "refund");
+                    // b.EscrowCoins now 0 by construction
+                }
+
 
                 // Items: reduce ask escrow and deliver to buyer
                 a.EscrowItems -= tradeQty;
