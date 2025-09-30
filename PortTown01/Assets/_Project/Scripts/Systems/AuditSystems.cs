@@ -15,54 +15,59 @@ namespace PortTown01.Systems
 
         // --- Tunables ---
         private const float STUCK_WINDOW_SEC = 10.0f;
-        private const bool  VERBOSE_OK_SUMMARY = false;
+        private static readonly bool VERBOSE_OK_SUMMARY = false; // runtime flag; avoids CS0162
+        private const int   MONEY_RESIDUAL_TOLERANCE = 0; // integer coins; 0 tolerance expected
 
-        // --- Incremental reconciliation state ---
-        private long _prevTotalMoney = long.MinValue; // agents + escrow + CityBudget at last audit step
-        private long _prevInflow     = 0;             // CoinsExternalInflow at last audit step
-        private long _prevOutflow    = 0;             // CoinsExternalOutflow at last audit step
+        // --- Incremental reconciliation state (money) ---
+        // agents + escrow + CityBudget at last audit step
+        private long _prevTotalMoney = long.MinValue;
+        // external mint/burn at last audit step
+        private long _prevInflow  = 0;
+        private long _prevOutflow = 0;
 
-        // --- Per-component deltas (agents / escrow / city) ---
+        // --- Per-pool snapshots to compute component deltas (ΔA/ΔE/ΔC) ---
         private int _prevAgentCoinsSum  = int.MinValue;
         private int _prevEscrowCoinsSum = int.MinValue;
         private int _prevCityCoinsSum   = int.MinValue;
 
         // --- Stuck detection snapshot ---
-        private int   _prevForestStock   = int.MinValue;
-        private int   _prevMillLogs      = int.MinValue;
-        private int   _prevMillPlanks    = int.MinValue;
-        private float _lastChangeSimTime = 0f;
+        private int    _prevForestStock = int.MinValue;
+        private int    _prevMillLogs    = int.MinValue;
+        private int    _prevMillPlanks  = int.MinValue;
+        private double _lastChangeSimTime = 0.0;
 
         public void Tick(World world, int tick, float dt)
         {
             // Run exactly once per second on shared cadence
             if (!SimTicks.Every1Hz(tick)) return;
 
-            // ---------- 1) MONEY CONSERVATION (incremental) ----------
+            // ---------- 1) MONEY CONSERVATION (incremental, integer-coins) ----------
+
+            // Pool tallies
             int agentCoins  = world.Agents.Sum(a => a.Coins);
-            int escrowCoins = world.FoodBook.Bids.Where(b => b.Qty > 0).Sum(b => b.EscrowCoins);
+            int escrowCoins = world.FoodBook.Bids.Where(b => b.Qty > 0).Sum(b => b.EscrowCoins); // coin escrow is bid-side
             int cityCoins   = world.CityBudget;
 
-            // Per-step deltas for components (first tick treated as 0)
-            int dAgents = (_prevAgentCoinsSum  == int.MinValue) ? 0 : (agentCoins  - _prevAgentCoinsSum);
-            int dEscrow = (_prevEscrowCoinsSum == int.MinValue) ? 0 : (escrowCoins - _prevEscrowCoinsSum);
-            int dCity   = (_prevCityCoinsSum   == int.MinValue) ? 0 : (cityCoins   - _prevCityCoinsSum);
+            // Component deltas (first observed step => 0)
+            int dA = (_prevAgentCoinsSum  == int.MinValue) ? 0 : (agentCoins  - _prevAgentCoinsSum);
+            int dE = (_prevEscrowCoinsSum == int.MinValue) ? 0 : (escrowCoins - _prevEscrowCoinsSum);
+            int dC = (_prevCityCoinsSum   == int.MinValue) ? 0 : (cityCoins   - _prevCityCoinsSum);
 
-            long currentTotal = (long)agentCoins + escrowCoins + cityCoins;
+            long currentTotal = (long)agentCoins + (long)escrowCoins + (long)cityCoins;
             long inflow       = world.CoinsExternalInflow;
             long outflow      = world.CoinsExternalOutflow;
 
             long expectedNow;
             if (_prevTotalMoney == long.MinValue)
             {
-                // First observation establishes the baseline snapshots
+                // Establish baselines on first observation
                 _prevTotalMoney = currentTotal;
                 _prevInflow     = inflow;
                 _prevOutflow    = outflow;
 
                 expectedNow     = currentTotal;
 
-                Debug.Log($"[AUDIT] Baseline coins set: {currentTotal} (agents={agentCoins}, escrow={escrowCoins}, city={cityCoins})");
+                Debug.Log($"[AUDIT] Baseline coins set: total={currentTotal} (agents={agentCoins}, escrow={escrowCoins}, city={cityCoins})");
             }
             else
             {
@@ -70,35 +75,39 @@ namespace PortTown01.Systems
                 long dOut = outflow - _prevOutflow;
 
                 expectedNow = _prevTotalMoney + (dIn - dOut);
-                long delta  = currentTotal - expectedNow;
+                long residual = currentTotal - expectedNow;
 
-                if (Mathf.Abs((int)delta) >= 2) // allow ±1 wiggle for integer rounding elsewhere
+                if (Math.Abs(residual) > MONEY_RESIDUAL_TOLERANCE)
                 {
                     Debug.LogError(
-                        $"[AUDIT][MONEY] Non-conservation: now={currentTotal} vs expected={expectedNow} (Δ={delta}). " +
-                        $"components: agents={agentCoins} (ΔA={dAgents}), escrow={escrowCoins} (ΔE={dEscrow}), city={cityCoins} (ΔC={dCity}); " +
-                        $"step Δin={dIn}, Δout={dOut}, prevTotal={_prevTotalMoney}, inflowCum={inflow}, outflowCum={outflow}");
-                    world.MoneyResidualAbsMax = Mathf.Max(world.MoneyResidualAbsMax, Mathf.Abs((int)delta));
+                        $"[AUDIT][MONEY] Non-conservation: now={currentTotal} expected={expectedNow} residual={residual} @tick {tick} | " +
+                        $"ΔA={dA}, ΔE={dE}, ΔC={dC} | step Δin={dIn}, Δout={dOut} | prevTotal={_prevTotalMoney}, inflowCum={inflow}, outflowCum={outflow}");
+                    // Track worst absolute residual in World (int-bounded)
+                    int absRes = (int)Math.Min(int.MaxValue, Math.Abs(residual));
+                    world.MoneyResidualAbsMax = Math.Max(world.MoneyResidualAbsMax, absRes);
                 }
 
-                // advance snapshots
+                // Advance snapshots
                 _prevTotalMoney = currentTotal;
                 _prevInflow     = inflow;
                 _prevOutflow    = outflow;
             }
 
-            // advance per-component snapshots (do this every tick, including first)
+            // Advance per-pool snapshots (always, including baseline tick)
             _prevAgentCoinsSum  = agentCoins;
             _prevEscrowCoinsSum = escrowCoins;
             _prevCityCoinsSum   = cityCoins;
 
             if (VERBOSE_OK_SUMMARY)
             {
-                Debug.Log($"[AUDIT][OK] moneyNow={currentTotal}, expectedNow={expectedNow}, " +
-                          $"agents={agentCoins}, escrow={escrowCoins}, city={cityCoins}");
+                Debug.Log($"[AUDIT][OK] moneyNow={currentTotal} " +
+                          $"(agents={agentCoins}, escrow={escrowCoins}, city={cityCoins})");
             }
 
             // ---------- 2) NEGATIVE COIN CHECKS ----------
+            if (cityCoins < 0)
+                Debug.LogError($"[AUDIT][MONEY] CityBudget negative: {cityCoins}");
+
             foreach (var a in world.Agents)
             {
                 if (a.Coins < 0)
@@ -110,7 +119,7 @@ namespace PortTown01.Systems
                     Debug.LogError($"[AUDIT][MONEY] Bid#{bid.Id} has negative escrow coins: {bid.EscrowCoins}");
             }
 
-            // ---------- 3) ITEM CONSERVATION / NEGATIVES ----------
+            // ---------- 3) ITEM NEGATIVES + ESCROW (type-aware, no cross-type conservation) ----------
             var itemTotals = new Dictionary<ItemType, int>();
             foreach (ItemType it in Enum.GetValues(typeof(ItemType))) itemTotals[it] = 0;
 
@@ -141,6 +150,9 @@ namespace PortTown01.Systems
                 Debug.LogError($"[AUDIT][ITEM] Ask escrow negative for Food: {escrowFood}");
             itemTotals[ItemType.Food] += Math.Max(0, escrowFood);
 
+            // Optionally expose a simple "worst negative seen" KPI for items (no cross-type conservation here)
+            // world.ItemResidualAbsMax = Math.Max(world.ItemResidualAbsMax, 0); // hook when you add it
+
             // ---------- 4) STUCK DETECTION ----------
             int forestStock = world.ResourceNodes.Count > 0 ? world.ResourceNodes[0].Stock : 0;
             int millLogs    = world.Buildings.Count > 0 ? world.Buildings[0].Storage.Get(ItemType.Log)   : 0;
@@ -159,13 +171,13 @@ namespace PortTown01.Systems
             }
             else
             {
-                float idleFor = (float)(world.SimTime - _lastChangeSimTime);
+                double idleFor = world.SimTime - _lastChangeSimTime;
                 bool haveLoggers = world.Agents.Any(a => a.Role == JobRole.Logger);
                 if (idleFor >= STUCK_WINDOW_SEC && haveLoggers)
                 {
                     Debug.LogWarning($"[AUDIT][STUCK] No production change for ~{idleFor:F1}s " +
                                      $"(forest={forestStock}, millLogs={millLogs}, planks={millPlanks}).");
-                    _lastChangeSimTime = (float)world.SimTime;
+                    _lastChangeSimTime = world.SimTime;
                 }
             }
         }
