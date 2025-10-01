@@ -1,78 +1,129 @@
 using System.Linq;
 using UnityEngine;
 using PortTown01.Core;
-using PortTown01.Econ;
 
 namespace PortTown01.Systems
 {
-    // Replaces/augments smoothing: update prices once per second via PI on inventory cover.
-    // Uses EMA of sell rates from ledgers to compute cover = inv / sell_rate_ema.
-    public class PricePIControllerSystem : ISimSystem
+    // Per-second PI controller for Food and Crate prices with anti-windup.
+    // Targets an inventory "cover" (seconds of stock at current sell-through rate).
+    // No external dependencies beyond World state; tune constants below to match your econ.
+    public sealed class PricePIControllerSystem : ISimSystem
     {
         public string Name => "PricePI";
 
+        // --- Tunables (safe defaults; adjust in code or lift into World/EconDefs later) ---
+
+        // Target inventory cover (seconds of supply)
+        private const float FOOD_TARGET_COVER_SEC  = 120f;
+        private const float CRATE_TARGET_COVER_SEC = 120f;
+
+        // PI gains (per second). Keep small to avoid oscillations.
+        private const float KP = 0.010f;
+        private const float KI = 0.002f;
+
+        // EMA smoothing for sell-through rate (alpha per 1 Hz)
+        private const float SELL_RATE_EMA_ALPHA = 0.25f;
+
+        // Hard bands to avoid runaway (fall back if you don't have band fields elsewhere)
+        private const int FOOD_PRICE_MIN  = 3;
+        private const int FOOD_PRICE_MAX  = 15;
+        private const int CRATE_PRICE_MIN = 5;
+        private const int CRATE_PRICE_MAX = 100;
+
+        // Dead-band to ignore tiny errors around target cover (seconds)
+        private const float COVER_DEADBAND_SEC = 5f;
+
+        // --- Internal state ---
+        private float _accum; // 1 Hz cadence
+
+        private int   _prevFoodSold;
+        private int   _prevCratesSold;
+        private float _foodSellEma;    // units/sec
+        private float _crateSellEma;   // units/sec
+
+        private float _iFood;          // integral accumulator
+        private float _iCrate;
+
         public void Tick(World world, int tick, float dt)
         {
+            _accum += dt;
             if (!SimTicks.Every1Hz(tick)) return;
 
-            // --- Update sell-rate EMAs (items/sec) from last-second deltas ---
-            // You already maintain FoodSold and CratesSold deltas in Telemetry; we recompute here
-            int dFood   = world.FoodSold - _prevFoodSold;
-            int dCrates = world.CratesSold - _prevCratesSold;
-            _prevFoodSold   = world.FoodSold;
-            _prevCratesSold = world.CratesSold;
+            // ----------- FOOD -----------
+            var vendor   = world.Agents.FirstOrDefault(a => a.IsVendor);
+            int foodSold = world.FoodSold;
+            int dFood    = Mathf.Max(0, foodSold - _prevFoodSold);
+            _prevFoodSold = foodSold;
 
-            float alpha = Mathf.Clamp01(world.SellRateAlpha);
-            world.FoodSellRateEma   = Mathf.Lerp(world.FoodSellRateEma,   Mathf.Max(0.01f, dFood),   alpha);
-            world.CrateSellRateEma  = Mathf.Lerp(world.CrateSellRateEma,  Mathf.Max(0.01f, dCrates), alpha);
+            // EMA of sell-through (units/sec)
+            _foodSellEma = (_foodSellEma <= 0f)
+                ? dFood
+                : Mathf.Lerp(_foodSellEma, dFood, SELL_RATE_EMA_ALPHA);
 
-            // --- Compute inventory on hand ---
-            int vendorInv = world.Agents.FirstOrDefault(a => a.IsVendor)?.Carry.Get(ItemType.Food) ?? 0;
-            int vendorEsc = world.FoodBook?.Asks.Sum(o => o.EscrowItems) ?? 0;
-            float foodInv = vendorInv + vendorEsc;
+            // Available for sale = on-hand + escrowed asks by vendor
+            int venInv  = vendor != null ? vendor.Carry.Get(ItemType.Food) : 0;
+            int venEsc  = (vendor != null && world.FoodBook != null)
+                ? world.FoodBook.Asks.Where(o => o.AgentId == vendor.Id && o.Qty > 0).Sum(o => o.EscrowItems)
+                : 0;
+            int forSale = venInv + venEsc;
 
-            var mill = world.Buildings.FirstOrDefault(b => b.Type == BuildingType.Mill);
-            int crateStock = (mill != null) ? mill.Storage.Get(ItemType.Crate) : 0;
+            float cover = ComputeCover(forSale, _foodSellEma);
+            float e     = ClampDeadband(FOOD_TARGET_COVER_SEC - cover, COVER_DEADBAND_SEC);
 
-            // --- Covers ---
-            float foodCoverSec  = foodInv  / Mathf.Max(0.01f, world.FoodSellRateEma);
-            float crateCoverSec = crateStock / Mathf.Max(0.01f, world.CrateSellRateEma);
+            // PI control effort
+            float u = KP * e + KI * _iFood;
 
-            // --- Errors ---
-            float eFood  = foodCoverSec  - world.FoodTargetCoverSec;
-            float eCrate = crateCoverSec - world.CrateTargetCoverSec;
+            // Propose multiplicative update (exponential map keeps positivity)
+            int p0 = Mathf.Max(FOOD_PRICE_MIN, world.FoodPrice);
+            int p1 = Mathf.Clamp(Mathf.RoundToInt(p0 * Mathf.Exp(u)), FOOD_PRICE_MIN, FOOD_PRICE_MAX);
 
-            world.FoodCoverErrorInt  = Mathf.Clamp(world.FoodCoverErrorInt + eFood,  -10000f, 10000f);
-            world.CrateCoverErrorInt = Mathf.Clamp(world.CrateCoverErrorInt + eCrate,-10000f, 10000f);
+            // Anti-windup: if clamped and control would push further out of band, freeze integral
+            bool clampedMin = p1 <= FOOD_PRICE_MIN && e < 0f; // asking to go lower but at min
+            bool clampedMax = p1 >= FOOD_PRICE_MAX && e > 0f; // asking to go higher but at max
+            if (!clampedMin && !clampedMax)
+                _iFood += e; // integrate only when not saturating
 
-            // --- PI updates in log-space (multiplicative price move) ---
-            float dLogFood  = world.Kp * eFood  + world.Ki * world.FoodCoverErrorInt;
-            float dLogCrate = world.Kp * eCrate + world.Ki * world.CrateCoverErrorInt;
+            world.FoodPrice = p1;
 
-            int newFood  = Mathf.RoundToInt(Mathf.Clamp(world.FoodPrice  * Mathf.Exp(dLogFood),  EconDefs.FOOD_PRICE_MIN,  EconDefs.FOOD_PRICE_MAX));
-            int newCrate = Mathf.RoundToInt(Mathf.Clamp(world.CratePrice * Mathf.Exp(dLogCrate), EconDefs.CRATE_PRICE_MIN, EconDefs.CRATE_PRICE_MAX));
+            // ----------- CRATES -----------
+            // Use mill stock as "for sale" proxy; haulers drain it to the dock.
+            var mill     = world.Buildings.FirstOrDefault(b => b.Type == BuildingType.Mill);
+            int crateInv = mill != null ? mill.Storage.Get(ItemType.Crate) : 0;
 
-            // Step-limit to <5% per second
-            newFood  = StepLimit(world.FoodPrice,  newFood,  0.05f);
-            newCrate = StepLimit(world.CratePrice, newCrate, 0.05f);
+            int cratesSold = world.CratesSold;
+            int dCrates    = Mathf.Max(0, cratesSold - _prevCratesSold);
+            _prevCratesSold = cratesSold;
 
-            world.FoodPrice  = newFood;
-            world.CratePrice = newCrate;
+            _crateSellEma = (_crateSellEma <= 0f)
+                ? dCrates
+                : Mathf.Lerp(_crateSellEma, dCrates, SELL_RATE_EMA_ALPHA);
 
-            // KPIs: price variance proxy (CPI-lite)
-            world.PriceVarSamples++;
-            float cpi = 0.5f * world.FoodPrice + 0.5f * (world.CratePrice / 5f); // arbitrary basket; stable scaling
-            world.PriceVarCpiLike += cpi * cpi; // accumulate sum of squares for later normalization
+            float coverCr = ComputeCover(crateInv, _crateSellEma);
+            float eCr     = ClampDeadband(CRATE_TARGET_COVER_SEC - coverCr, COVER_DEADBAND_SEC);
+
+            float uCr = KP * eCr + KI * _iCrate;
+
+            int pc0 = Mathf.Max(CRATE_PRICE_MIN, world.CratePrice);
+            int pc1 = Mathf.Clamp(Mathf.RoundToInt(pc0 * Mathf.Exp(uCr)), CRATE_PRICE_MIN, CRATE_PRICE_MAX);
+
+            bool clampedMinCr = pc1 <= CRATE_PRICE_MIN && eCr < 0f;
+            bool clampedMaxCr = pc1 >= CRATE_PRICE_MAX && eCr > 0f;
+            if (!clampedMinCr && !clampedMaxCr)
+                _iCrate += eCr;
+
+            world.CratePrice = pc1;
         }
 
-        private int _prevFoodSold = 0;
-        private int _prevCratesSold = 0;
-
-        private int StepLimit(int oldP, int newP, float frac)
+        private static float ComputeCover(int forSaleUnits, float sellPerSec)
         {
-            int up   = Mathf.RoundToInt(oldP * (1f + frac));
-            int down = Mathf.RoundToInt(oldP * (1f - frac));
-            return Mathf.Clamp(newP, Mathf.Min(oldP, down), Mathf.Max(oldP, up));
+            if (sellPerSec <= 0.0001f) return float.PositiveInfinity; // no demand -> infinite cover
+            return Mathf.Clamp(forSaleUnits / sellPerSec, 0f, 3600f);
+        }
+
+        private static float ClampDeadband(float value, float deadband)
+        {
+            if (Mathf.Abs(value) <= deadband) return 0f;
+            return value > 0 ? value - deadband : value + deadband;
         }
     }
 }

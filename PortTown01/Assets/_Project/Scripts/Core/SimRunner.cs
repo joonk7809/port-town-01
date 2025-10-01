@@ -1,11 +1,15 @@
 using System.Collections.Generic;
+using System.Linq;
+using System.IO;
+using System.Diagnostics;  // Stopwatch
 using UnityEngine;
+using PortTown01.Core;
 using PortTown01.Systems;
 
 namespace PortTown01.Core
 {
     // Attach this to an empty GameObject in Main scene.
-    // It runs a fixed-step sim loop independent of render frame rate.
+    // It runs a fixed-step sim loop independent of render frame rate and profiles per-system cost.
     public class SimRunner : MonoBehaviour
     {
         [Header("Fixed-step settings")]
@@ -24,47 +28,56 @@ namespace PortTown01.Core
 
         private World _world;
         private List<ISimSystem> _pipeline;
-        
+
         [SerializeField] private float _fixedDt = 0.05f;   // 20 Hz sim
         [SerializeField] private int   _maxStepsPerFrame = 6; // cap work per frame
         private float _accum = 0f;
 
-
         public World WorldRef => _world;   // read-only access for other systems/HUD
 
+        // ---- Perf probe state ----
+        private const float PERF_REPORT_AT_SECONDS = 600f; // match Gatekeeper default (10 minutes)
+        private Stopwatch _sw;
+        private List<float>[] _sysDurMs;   // per-system sample list (ms)
+        private string[] _sysNames;
+        private bool _perfReported;
 
         // ---------- UNITY LIFECYCLE ----------
         void Awake()
         {
-                Application.targetFrameRate = 60;
-                Time.fixedDeltaTime = fixedDelta;
+            Application.targetFrameRate = 60;
+            Time.fixedDeltaTime = fixedDelta;
 
-                // sync public inspector fields into the loop fields
-                _fixedDt = fixedDelta;
-                _maxStepsPerFrame = maxStepsPerFrame;
+            // sync public inspector fields into the loop fields
+            _fixedDt = fixedDelta;
+            _maxStepsPerFrame = maxStepsPerFrame;
 
-                Random.InitState(randomSeed);
+            Random.InitState(randomSeed);
 
             _world = new World();
+
             _pipeline = new List<ISimSystem>
             {
-                
+                // Must run first so scripted shocks apply before controllers/markets
+                new ScenarioRunnerSystem(),
+
                 // Input → Contracts → Work → Trade → Needs → Planner → Movement → Economy → Telemetry
                 new NeedsDecaySystem(),
                 new DayPlanSystem(),
                 new EmploymentSystem(),
 
                 new PlannerSystem(),
-                
+
                 new DemoHarvestSystem(),
                 new FoodTradeSystem(),
 
                 new MovementSystem(),
                 new SleepSystem(),
-                
+
                 new OrderMatchingSystem(),
+                new OrderBookCleanupSystem(),   // expire stale orders; guarantee refunds/releases
                 new EatingSystem(),
-                
+
                 new MillProcessingSystem(),
                 new CratePackingSystem(),
                 new HaulCratesSystem(),
@@ -77,18 +90,26 @@ namespace PortTown01.Core
                 new AgentCSVSnapshotSystem(),
                 new CSVSnapshotSystem(),
 
+                // Audit must precede Gatekeeper and Guardrails
                 new AuditSystem(),
+                // Gatekeeper reads final invariants before Guardrails clamps anything
+                new GatekeeperSystem(),
+                // Guardrails can clamp in dev to keep sim from exploding after we've recorded violations
                 new GuardrailsSystem(),
 
                 new KPISystem(),
             };
-            
 
+            // ---- Perf probe init ----
+            _sw = new Stopwatch();
+            _sysNames = _pipeline.Select(s => s.Name).ToArray();
+            _sysDurMs = new List<float>[_pipeline.Count];
+            for (int i = 0; i < _pipeline.Count; i++) _sysDurMs[i] = new List<float>(12000);
 
             BootstrapAgents(bootstrapAgents);
             BootstrapWorld();
 
-            Debug.Log($"[SimRunner] bootstrapAgents = {bootstrapAgents}");
+            UnityEngine.Debug.Log($"[SimRunner] bootstrapAgents = {bootstrapAgents}");
         }
 
         private void Update()
@@ -100,7 +121,12 @@ namespace PortTown01.Core
             {
                 // one fixed tick
                 for (int i = 0; i < _pipeline.Count; i++)
+                {
+                    _sw.Restart();
                     _pipeline[i].Tick(_world, _world.Tick, _fixedDt);
+                    _sw.Stop();
+                    _sysDurMs[i].Add((float)_sw.Elapsed.TotalMilliseconds);
+                }
 
                 _world.Advance(1, _fixedDt);
                 _accum -= _fixedDt;
@@ -110,6 +136,13 @@ namespace PortTown01.Core
             // If we fall way behind (e.g., pause/unpause), trim backlog to avoid spiral of death
             if (steps == _maxStepsPerFrame && _accum > _fixedDt * 4f)
                 _accum = _fixedDt; // keep one extra step pending
+
+            // Emit perf summary once per run
+            if (!_perfReported && _world.SimTime >= PERF_REPORT_AT_SECONDS)
+            {
+                WritePerfSummaryCsv();
+                _perfReported = true;
+            }
         }
 
         // ---------- SIM CORE ----------
@@ -117,8 +150,13 @@ namespace PortTown01.Core
         {
             int tickIndex = _world.Tick + 1; // 1-based tick notion for readability
 
-            foreach (var sys in _pipeline)
-                sys.Tick(_world, tickIndex, fixedDelta);
+            for (int i = 0; i < _pipeline.Count; i++)
+            {
+                _sw.Restart();
+                _pipeline[i].Tick(_world, tickIndex, fixedDelta);
+                _sw.Stop();
+                _sysDurMs[i].Add((float)_sw.Elapsed.TotalMilliseconds);
+            }
 
             _world.Advance(1, fixedDelta);
         }
@@ -136,12 +174,11 @@ namespace PortTown01.Core
                     SpeedMps = Random.Range(1.2f, 2.0f)
                 };
                 _world.Agents.Add(a);
-                a.HomePos = new Vector3(UnityEngine.Random.Range(-6f, 6f), 0f, UnityEngine.Random.Range(14f, 24f));
+                a.HomePos = new Vector3(Random.Range(-6f, 6f), 0f, Random.Range(14f, 24f));
 
                 // Optional: spawn a tiny visual so you can see motion
                 SpawnView(a);
                 SpawnMarker(a.HomePos, new Color(0.4f,0.4f,1f,0.6f), $"Home_{a.Id}");
-
             }
         }
 
@@ -154,6 +191,7 @@ namespace PortTown01.Core
             // Attach a tiny component to follow sim position
             go.AddComponent<AgentView>().Bind(a);
         }
+
         private void BootstrapWorld()
         {
             // 1) Forest node
@@ -299,11 +337,71 @@ namespace PortTown01.Core
             if (mr != null) mr.material.color = color;
         }
 
-        
+        // ---------- Perf summary ----------
+        private void WritePerfSummaryCsv()
+        {
+            string dir = Path.Combine(Application.persistentDataPath, "Snapshots");
+            Directory.CreateDirectory(dir);
+            string path = Path.Combine(dir, "PerfSummary.csv");
 
+            bool writeHeader = !File.Exists(path);
+            using (var sw = new StreamWriter(path, append: true))
+            {
+                if (writeHeader)
+                {
+                    sw.WriteLine(string.Join(",",
+                        "timestampUtc","simSeconds",
+                        "system","samples","mean_ms","p50_ms","p95_ms","p99_ms"));
+                }
 
+                for (int i = 0; i < _pipeline.Count; i++)
+                {
+                    var samples = _sysDurMs[i];
+                    if (samples.Count == 0) continue;
 
-        
+                    // copy + sort for percentile calc
+                    var arr = samples.ToArray();
+                    System.Array.Sort(arr);
 
+                    float mean = 0f;
+                    for (int k = 0; k < arr.Length; k++) mean += arr[k];
+                    mean /= arr.Length;
+
+                    float p50 = Percentile(arr, 0.50f);
+                    float p95 = Percentile(arr, 0.95f);
+                    float p99 = Percentile(arr, 0.99f);
+
+                    sw.WriteLine(string.Join(",",
+                        System.DateTime.UtcNow.ToString("o"),
+                        _world.SimTime.ToString("F1"),
+                        SanitizeName(_sysNames[i]),
+                        arr.Length,
+                        mean.ToString("F4"),
+                        p50.ToString("F4"),
+                        p95.ToString("F4"),
+                        p99.ToString("F4")));
+                }
+            }
+
+            UnityEngine.Debug.Log($"[Perf] Wrote {_pipeline.Count} system summaries to {path}");
+        }
+
+        private static float Percentile(float[] sorted, float p)
+        {
+            if (sorted == null || sorted.Length == 0) return 0f;
+            float pos = (sorted.Length - 1) * Mathf.Clamp01(p);
+            int lo = Mathf.FloorToInt(pos);
+            int hi = Mathf.CeilToInt(pos);
+            if (lo == hi) return sorted[lo];
+            float frac = pos - lo;
+            return Mathf.Lerp(sorted[lo], sorted[hi], frac);
+        }
+
+        private static string SanitizeName(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "Unknown";
+            // Remove commas to keep CSV simple
+            return s.Replace(",", " ");
+        }
     }
 }

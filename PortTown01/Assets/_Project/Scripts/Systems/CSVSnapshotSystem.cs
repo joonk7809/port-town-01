@@ -1,186 +1,160 @@
+using System;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Globalization;
 using UnityEngine;
 using PortTown01.Core;
 
 namespace PortTown01.Systems
 {
-    public class CSVSnapshotSystem : ISimSystem
+    /// <summary>
+    /// Per-second aggregate CSV snapshots with money integrity fields.
+    /// Writes to Application.persistentDataPath/Snapshots/Aggregate.csv
+    /// Columns are stable; append-only.
+    /// </summary>
+    public sealed class CSVSnapshotSystem : ISimSystem
     {
-        public string Name => "CSVSnapshot";
+        public string Name => "CSV";
 
-        const float SAMPLE_EVERY_SEC = 1f;
-        const float DAY_SECONDS = 600f;
-        const float START_HOUR  = 9f;
+        private const string DIR  = "Snapshots";
+        private const string FILE = "Aggregate.csv";
 
-        private string _filePath;
-        private bool _wroteHeader = false;
-
-        private int _prevForest = int.MinValue;
-        private int _prevMillLogs = int.MinValue;
-        private int _prevMillPlanks = int.MinValue;
-        private int _prevMillCrates = int.MinValue;
-
-        private int _prevCratesSold = int.MinValue;
+        // Money reconciliation baselines (align with AuditSystem)
+        private long _prevTotalMoney = long.MinValue;
+        private long _prevInflow;   // world.CoinsExternalInflow (cumulative)
+        private long _prevOutflow;  // world.CoinsExternalOutflow (cumulative)
 
         public void Tick(World world, int tick, float dt)
         {
             if (!SimTicks.Every1Hz(tick)) return;
 
-            EnsureFile();
+            // --- Money pools (integer coins) ---
+            int agentCoins  = world.Agents.Sum(a => a.Coins);
+            int escrowCoins = world.FoodBook?.Bids.Where(b => b.Qty > 0).Sum(b => b.EscrowCoins) ?? 0;
+            int cityCoins   = world.CityBudget;
+            long totalMoney = (long)agentCoins + escrowCoins + cityCoins;
 
-            float sim = world.SimTime;
-            float daySec = (float)((sim + (START_HOUR/24f)*DAY_SECONDS) % DAY_SECONDS);
-            int hh = Mathf.FloorToInt(daySec / DAY_SECONDS * 24f);
-            int mm = Mathf.FloorToInt(((daySec / DAY_SECONDS * 24f) - hh) * 60f);
+            long inflow  = world.CoinsExternalInflow;
+            long outflow = world.CoinsExternalOutflow;
 
-            int agents = world.Agents.Count;
-            float avgFood = agents > 0 ? world.Agents.Average(a => a.Food) : 0f;
-            float avgRest = agents > 0 ? world.Agents.Average(a => a.Rest) : 0f;
+            long expectedNow;
+            long residual;
 
-            int forestStock = world.ResourceNodes.FirstOrDefault()?.Stock ?? 0;
-            var mill = world.Buildings.FirstOrDefault(b => b.Type == BuildingType.Mill);
-            int millLogs   = mill?.Storage.Get(ItemType.Log)   ?? 0;
-            int millPlanks = mill?.Storage.Get(ItemType.Plank) ?? 0;
-            int millCrates = mill?.Storage.Get(ItemType.Crate) ?? 0;
-
-            int dForest   = (_prevForest   == int.MinValue) ? 0 : forestStock - _prevForest;
-            int dMillLogs = (_prevMillLogs == int.MinValue) ? 0 : millLogs    - _prevMillLogs;
-            int dPlanks   = (_prevMillPlanks==int.MinValue) ? 0 : millPlanks  - _prevMillPlanks;
-            int dCrates   = (_prevMillCrates==int.MinValue) ? 0 : millCrates  - _prevMillCrates;
-            _prevForest = forestStock; _prevMillLogs = millLogs; _prevMillPlanks = millPlanks; _prevMillCrates = millCrates;
-
-            int bids = world.FoodBook.Bids.Count(o => o.Qty > 0);
-            int asks = world.FoodBook.Asks.Count(o => o.Qty > 0);
-            int bestBid = world.FoodBook.Bids.Where(o=>o.Qty>0).Select(o=>o.UnitPrice).DefaultIfEmpty(0).Max();
-            int bestAsk = world.FoodBook.Asks.Where(o=>o.Qty>0).Select(o=>o.UnitPrice).DefaultIfEmpty(0).Min();
-
-            var vendor = world.Agents.FirstOrDefault(a => a.IsVendor);
-            int vendorInv   = vendor != null ? vendor.Carry.Get(ItemType.Food) : 0;
-            int vendorEsc   = vendor != null ? world.FoodBook.Asks.Where(o=>o.AgentId==vendor.Id && o.Qty>0).Sum(o=>o.EscrowItems) : 0;
-            int vendorCoins = vendor?.Coins ?? 0;
-            int vendorForSale = vendorInv + vendorEsc;
-
-            var boss = world.Agents.Where(a => !a.IsVendor && a.IsEmployer).FirstOrDefault()
-                       ?? world.Agents.Where(a => !a.IsVendor).OrderByDescending(a => a.Coins).FirstOrDefault();
-            int bossCoins = boss?.Coins ?? 0;
-
-            var dock = world.Buildings.FirstOrDefault(b => b.Type == BuildingType.Dock);
-            var dockBuyer = world.Agents
-                .Where(a => !a.IsVendor && a.SpeedMps == 0f)
-                .OrderBy(a => dock == null ? 9999f : Vector3.Distance(a.Pos, dock.Pos))
-                .FirstOrDefault();
-            int dockCoins = dockBuyer?.Coins ?? 0;
-
-            // money
-            int agentCoins = world.Agents.Sum(a => a.Coins);
-            int bidEscrow  = world.FoodBook.Bids.Where(b=>b.Qty>0).Sum(b => b.EscrowCoins);
-            int cityCoins  = world.CityBudget;
-            int totalCoins = agentCoins + bidEscrow; // (kept for continuity; city in separate column)
-
-            // estimate shipped crates by dock coin outflow
-            int cratesShipped = (_prevCratesSold == int.MinValue)
-                ? 0
-                : (world.CratesSold - _prevCratesSold);
-            _prevCratesSold = world.CratesSold;
-
-            int loggers = world.Agents.Count(a => a.Role == JobRole.Logger);
-            int workingLoggers = world.Agents.Count(a => a.Role == JobRole.Logger && a.Phase == DayPhase.Work);
-            int haulers = world.Agents.Count(a => a.Role == JobRole.Hauler);
-            int workingHaulers = world.Agents.Count(a => a.Role == JobRole.Hauler && a.Phase == DayPhase.Work);
-
-            int cratesSold = world.CratesSold;
-            int revDock    = world.RevenueDock;
-            int wagesHaul  = world.WagesHaul;
-            int profit     = revDock - wagesHaul;
-
-            int foodPrice  = world.FoodPrice;
-            int cratePrice = world.CratePrice;  
-            int intentWork    = world.Agents.Count(a => a.Intent == PortTown01.Core.AgentIntent.Work);
-            int intentEat     = world.Agents.Count(a => a.Intent == PortTown01.Core.AgentIntent.Eat);
-            int intentSleep   = world.Agents.Count(a => a.Intent == PortTown01.Core.AgentIntent.Sleep);
-            int intentLeisure = world.Agents.Count(a => a.Intent == PortTown01.Core.AgentIntent.Leisure);
-
-            if (!_wroteHeader)
+            if (_prevTotalMoney == long.MinValue)
             {
-                var header = "tick,sim_s,tod,agents,avgFood,avgRest," +
-                             "forestStock,dForest,millLogs,dMillLogs,millPlanks,dPlanks,millCrates,dCrates," +
-                             "bids,asks,bestBid,bestAsk," +
-                             "vendorInv,vendorEscrow,vendorForSale,vendorCoins," +
-                             "bossCoins,dockCoins,totalCoins," +
-                             "cratesShipped,loggers,workingLoggers,haulers,workingHaulers," + 
-                             "cratesSold,revDock,wagesHaul,profit," +
-                             "foodPrice,cratePrice," + 
-                             "intentWork,intentEat,intentSleep,intentLeisure," +
-                             "time,agentsCoins,escrowCoins,cityCoins";
-                File.AppendAllText(_filePath, header + "\n", Encoding.UTF8);
-                Debug.Log($"[CSV] Snapshotting to: {_filePath}");
-                _wroteHeader = true;
+                // establish baselines on first sample
+                _prevTotalMoney = totalMoney;
+                _prevInflow     = inflow;
+                _prevOutflow    = outflow;
+                expectedNow     = totalMoney;
+                residual        = 0;
+            }
+            else
+            {
+                long dIn  = inflow  - _prevInflow;
+                long dOut = outflow - _prevOutflow;
+                expectedNow = _prevTotalMoney + (dIn - dOut);
+                residual    = totalMoney - expectedNow;
+
+                // roll baselines
+                _prevTotalMoney = totalMoney;
+                _prevInflow     = inflow;
+                _prevOutflow    = outflow;
             }
 
-            var inv = CultureInfo.InvariantCulture;
-            string tod = $"{hh:D2}:{mm:D2}";
+            // --- Commodity/throughput context (safe lookups) ---
+            int foodPrice  = Mathf.Max(1, world.FoodPrice);
+            int cratePrice = Mathf.Max(1, world.CratePrice);
 
-            var line = string.Join(",",
-                world.Tick.ToString(inv),
-                sim.ToString("F1", inv),
-                tod,
-                agents.ToString(inv),
-                avgFood.ToString("F2", inv),
-                avgRest.ToString("F2", inv),
-                forestStock.ToString(inv),
-                dForest.ToString(inv),
-                millLogs.ToString(inv),
-                dMillLogs.ToString(inv),
-                millPlanks.ToString(inv),
-                dPlanks.ToString(inv),
-                millCrates.ToString(inv),
-                dCrates.ToString(inv),
-                bids.ToString(inv),
-                asks.ToString(inv),
-                bestBid.ToString(inv),
-                bestAsk.ToString(inv),
-                vendorInv.ToString(inv),
-                vendorEsc.ToString(inv),
-                vendorForSale.ToString(inv),
-                vendorCoins.ToString(inv),
-                bossCoins.ToString(inv),
-                dockCoins.ToString(inv),
-                totalCoins.ToString(inv),
-                cratesShipped.ToString(inv),
-                loggers.ToString(inv),
-                workingLoggers.ToString(inv),
-                haulers.ToString(inv),
-                workingHaulers.ToString(inv),
-                cratesSold.ToString(inv),
-                revDock.ToString(inv),
-                wagesHaul.ToString(inv),
-                profit.ToString(inv),
-                foodPrice.ToString(inv),
-                cratePrice.ToString(inv),
-                intentWork.ToString(inv),
-                intentEat.ToString(inv),
-                intentSleep.ToString(inv),
-                intentLeisure.ToString(inv),
+            var vendor = world.Agents.FirstOrDefault(a => a.IsVendor);
+            int vendorInvFood = vendor != null ? vendor.Carry.Get(ItemType.Food) : 0;
+            int vendorEscFood = (vendor != null && world.FoodBook != null)
+                ? world.FoodBook.Asks.Where(o => o.AgentId == vendor.Id && o.Qty > 0).Sum(o => o.EscrowItems)
+                : 0;
 
-                // NEW: time, agentsCoins, escrowCoins, cityCoins (parity with Audit)
-                tod,
-                agentCoins.ToString(inv),
-                bidEscrow.ToString(inv),
-                cityCoins.ToString(inv)
-            );
-            File.AppendAllText(_filePath, line + "\n", Encoding.UTF8);
-        }
+            var mill = world.Buildings.FirstOrDefault(b => b.Type == BuildingType.Mill);
+            int millLogs   = mill != null ? mill.Storage.Get(ItemType.Log)   : 0;
+            int millPlanks = mill != null ? mill.Storage.Get(ItemType.Plank) : 0;
+            int millCrates = mill != null ? mill.Storage.Get(ItemType.Crate) : 0;
 
-        private void EnsureFile()
-        {
-            if (!string.IsNullOrEmpty(_filePath)) return;
-            string dir = Path.Combine(Application.persistentDataPath, "Snapshots");
-            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-            string ts = System.DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            _filePath = Path.Combine(dir, $"run_{ts}.csv");
+            // Queue proxy: people within ~2.5m of stall
+            var stall = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.Trading);
+            int stallQueueCount = 0;
+            if (stall != null)
+            {
+                var sPos = stall.StationPos;
+                stallQueueCount = world.Agents.Count(a => Vector3.Distance(a.Pos, sPos) <= 2.5f);
+            }
+
+            // --- Write CSV ---
+            try
+            {
+                var dir = Path.Combine(Application.persistentDataPath, DIR);
+                Directory.CreateDirectory(dir);
+                var path = Path.Combine(dir, FILE);
+
+                bool writeHeader = !File.Exists(path);
+                using (var sw = new StreamWriter(path, append: true, Encoding.UTF8))
+                {
+                    if (writeHeader)
+                    {
+                        sw.WriteLine(string.Join(",",
+                            // identifiers
+                            "timestampUtc","tick","simTime",
+                            // money integrity (pools + residual)
+                            "totalMoney","agentsCoins","escrowCoins","cityCoins","residualMoney",
+                            // external flows (cumulative)
+                            "coinsExternalInflow","coinsExternalOutflow",
+                            // prices
+                            "foodPrice","cratePrice",
+                            // stocks (selected)
+                            "vendorInvFood","vendorEscrowFood",
+                            "millLogs","millPlanks","millCrates",
+                            // activity totals
+                            "foodSold","cratesSold","vendorRevenue","dockRevenue","wagesHaul",
+                            // service proxy
+                            "stallQueueCount"
+                        ));
+                    }
+
+                    sw.WriteLine(string.Join(",",
+                        DateTime.UtcNow.ToString("o"),
+                        tick,
+                        world.SimTime.ToString("F1"),
+
+                        totalMoney,
+                        agentCoins,
+                        escrowCoins,
+                        cityCoins,
+                        residual,
+
+                        inflow,
+                        outflow,
+
+                        foodPrice,
+                        cratePrice,
+
+                        vendorInvFood,
+                        vendorEscFood,
+
+                        millLogs,
+                        millPlanks,
+                        millCrates,
+
+                        world.FoodSold,
+                        world.CratesSold,
+                        world.VendorRevenue,
+                        world.RevenueDock,
+                        world.WagesHaul,
+
+                        stallQueueCount
+                    ));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[CSV] Failed to write Aggregate.csv: " + ex.Message);
+            }
         }
     }
 }
