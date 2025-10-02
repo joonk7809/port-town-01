@@ -4,111 +4,108 @@ using PortTown01.Core;
 
 namespace PortTown01.Systems
 {
-    public class TelemetrySystem : ISimSystem
+    /// <summary>
+    /// 1 Hz console telemetry with derived W/E/S/L intent counts.
+    /// Does not rely on any Planner-owned intent field.
+    /// Heuristics (precedence: Eat > Sleep > Work > Leisure):
+    ///   Eat   : within queue radius of Trading stall.
+    ///   Sleep : DayPhase.Sleep OR near home.
+    ///   Work  : DayPhase.Work OR near role-appropriate worksite.
+    ///   Leisure: otherwise.
+    /// </summary>
+    public sealed class TelemetrySystem : ISimSystem
     {
         public string Name => "Telemetry";
 
-        private const float EVERY = 1f;
-
-        // deltas
-        private int _prevMillCrates = int.MinValue;
-        private int _prevCratesSold = int.MinValue;
-
-        // match DayPlanSystem for readable time-of-day
-        private const float DAY_SECONDS = 600f;
-        private const float START_HOUR  = 9f;
+        private const float QUEUE_RADIUS_M   = 2.5f; // who counts as "in line"
+        private const float NEAR_HOME_M      = 2.0f;
+        private const float NEAR_WORK_M      = 6.0f;
 
         public void Tick(World world, int tick, float dt)
         {
             if (!SimTicks.Every1Hz(tick)) return;
 
-            // --- time of day ---
-            float daySec = (float)((world.SimTime + (START_HOUR / 24f) * DAY_SECONDS) % DAY_SECONDS);
-            int hh = Mathf.FloorToInt(daySec / DAY_SECONDS * 24f);
-            int mm = Mathf.FloorToInt(((daySec / DAY_SECONDS * 24f) - hh) * 60f);
+            var stall   = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.Trading);
+            var forest  = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.Logging);
+            var mill    = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.Milling);
+            var dock    = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.DockLoading);
 
-            // --- pop & needs ---
-            int n = world.Agents.Count;
-            float avgFood = n > 0 ? world.Agents.Average(a => a.Food) : 0f;
-            float avgRest = n > 0 ? world.Agents.Average(a => a.Rest) : 0f;
+            // Derived W/E/S/L counters (skip pure infrastructure actors for W/E/S/L)
+            int w = 0, e = 0, s = 0, l = 0;
 
-            // --- forest & mill stocks ---
-            int forestStock = world.ResourceNodes.FirstOrDefault()?.Stock ?? 0;
-            var mill = world.Buildings.FirstOrDefault(b => b.Type == BuildingType.Mill);
-            int millLogs   = mill?.Storage.Get(ItemType.Log)   ?? 0;
-            int millPlanks = mill?.Storage.Get(ItemType.Plank) ?? 0;
-            int millCrates = mill?.Storage.Get(ItemType.Crate) ?? 0;
-            int millItems  = millLogs + millPlanks + millCrates;
+            foreach (var a in world.Agents)
+            {
+                bool infra = a.IsVendor || a.IsEmployer;
 
-            // --- vendor & book ---
-            var vendor = world.Agents.FirstOrDefault(a => a.IsVendor);
-            int vendorInv   = vendor != null ? vendor.Carry.Get(ItemType.Food) : 0;
-            int vendorEsc   = vendor != null ? world.FoodBook.Asks.Where(o => o.AgentId == vendor.Id && o.Qty > 0).Sum(o => o.EscrowItems) : 0;
-            int vendorForSale = vendorInv + vendorEsc;
-            int vendorCoins = vendor?.Coins ?? 0;
+                // Eat: highest precedence
+                bool isEat = false;
+                if (stall != null)
+                {
+                    if (Vector3.Distance(a.Pos, stall.StationPos) <= QUEUE_RADIUS_M)
+                        isEat = true;
+                }
 
-            int bids    = world.FoodBook.Bids.Count(o => o.Qty > 0);
-            int asks    = world.FoodBook.Asks.Count(o => o.Qty > 0);
-            int bestBid = world.FoodBook.Bids.Where(o => o.Qty > 0).Select(o => o.UnitPrice).DefaultIfEmpty(0).Max();
-            int bestAsk = world.FoodBook.Asks.Where(o => o.Qty > 0).Select(o => o.UnitPrice).DefaultIfEmpty(0).Min();
+                // Sleep: next precedence
+                bool isSleep = (!isEat) && (a.Phase == DayPhase.Sleep ||
+                                            Vector3.Distance(a.Pos, a.HomePos) <= NEAR_HOME_M);
 
-            // --- boss & dock buyer (boss via IsEmployer) ---
-            var boss = world.Agents.FirstOrDefault(a => a.IsEmployer) 
-                       ?? world.Agents.Where(a => !a.IsVendor).OrderByDescending(a => a.Coins).FirstOrDefault();
-            int bossCoins = boss?.Coins ?? 0;
+                // Work: role-aware, only if not eating or sleeping
+                bool isWork = false;
+                if (!isEat && !isSleep && !infra)
+                {
+                    Vector3? workPos = null;
+                    switch (a.Role)
+                    {
+                        case JobRole.Logger: workPos = forest?.StationPos; break;
+                        case JobRole.Miller: workPos = mill?.StationPos;   break;
+                        case JobRole.Hauler:
+                            // if carrying crates, dock; else mill
+                            int crates = a.Carry.Get(ItemType.Crate);
+                            workPos = crates > 0 ? dock?.StationPos : mill?.StationPos; break;
+                        default:
+                            // fall back to work phase heuristic
+                            break;
+                    }
 
-            var dock = world.Buildings.FirstOrDefault(b => b.Type == BuildingType.Dock);
-            var dockBuyer = world.Agents
-                .Where(a => !a.IsVendor && a.SpeedMps == 0f)
-                .OrderBy(a => dock == null ? 9999f : Vector3.Distance(a.Pos, dock.Pos))
-                .FirstOrDefault();
-            int dockCoins = dockBuyer?.Coins ?? 0;
+                    if (workPos.HasValue)
+                        isWork = Vector3.Distance(a.Pos, workPos.Value) <= NEAR_WORK_M;
+                    else
+                        isWork = (a.Phase == DayPhase.Work);
+                }
 
-            // --- workforce ---
-            int loggers = world.Agents.Count(a => a.Role == JobRole.Logger);
-            int workingLoggers = world.Agents.Count(a => a.Role == JobRole.Logger && a.Phase == DayPhase.Work);
-            int haulers = world.Agents.Count(a => a.Role == JobRole.Hauler);
-            int workingHaulers = world.Agents.Count(a => a.Role == JobRole.Hauler && a.Phase == DayPhase.Work);
+                // Leisure: remainder
+                bool isLeisure = !isEat && !isSleep && !isWork;
 
-            // intents (Planner v1)
-            int intentWork    = world.Agents.Count(a => a.Intent == AgentIntent.Work);
-            int intentEat     = world.Agents.Count(a => a.Intent == AgentIntent.Eat);
-            int intentSleep   = world.Agents.Count(a => a.Intent == AgentIntent.Sleep);
-            int intentLeisure = world.Agents.Count(a => a.Intent == AgentIntent.Leisure);
+                if (!infra)
+                {
+                    if (isEat) e++;
+                    else if (isSleep) s++;
+                    else if (isWork) w++;
+                    else l++;
+                }
+            }
 
-            // --- money conservation (agents + bid escrow) ---
-            int agentCoins = world.Agents.Sum(a => a.Coins);
-            int bidEscrow  = world.FoodBook.Bids.Where(b => b.Qty > 0).Sum(b => b.EscrowCoins);
-            int totalCoins = agentCoins + bidEscrow;
+            // Context (prices, stocks, queue)
+            int foodPrice  = Mathf.Max(1, world.FoodPrice);
+            int cratePrice = Mathf.Max(1, world.CratePrice);
 
-            // --- deltas ---
-            int dCrates = (_prevMillCrates == int.MinValue) ? 0 : millCrates - _prevMillCrates;
-            _prevMillCrates = millCrates;
+            int stallQueueCount = 0;
+            if (stall != null)
+            {
+                var sPos = stall.StationPos;
+                stallQueueCount = world.Agents.Count(a => Vector3.Distance(a.Pos, sPos) <= QUEUE_RADIUS_M);
+            }
 
-            int shippedCrates = (_prevCratesSold == int.MinValue) ? 0 : (world.CratesSold - _prevCratesSold);
-            _prevCratesSold = world.CratesSold;
-
-            // --- ledger & prices ---
-            int cratesSold = world.CratesSold;
-            int revDock    = world.RevenueDock;
-            int wagesHaul  = world.WagesHaul;
-            int profit     = revDock - wagesHaul;
-
-            int foodPrice  = world.FoodPrice;
-            int cratePrice = world.CratePrice;
+            // Money integrity quick line (parity with HUD/CSV)
+            int agentCoins  = world.Agents.Sum(a => a.Coins);
+            int escrowCoins = world.FoodBook?.Bids.Where(b => b.Qty > 0).Sum(b => b.EscrowCoins) ?? 0;
+            int cityCoins   = world.CityBudget;
+            long totalMoney = (long)agentCoins + escrowCoins + cityCoins;
 
             Debug.Log(
-                $"[TEL] tod={hh:D2}:{mm:D2} t={world.SimTime:F1}s tick={world.Tick} agents={n} " +
-                $"avgFood={avgFood:F1} avgRest={avgRest:F1} " +
-                $"forestStock={forestStock} millLogs={millLogs} millPlanks={millPlanks} millCrates={millCrates}(d={dCrates}) " +
-                $"vendorInv={vendorInv} vendorEscrow={vendorEsc} vendorForSale={vendorForSale} vendorCoins={vendorCoins} " +
-                $"bids={bids} asks={asks} bestBid={bestBid} bestAsk={bestAsk} " +
-                $"bossCoins={bossCoins} dockCoins={dockCoins} totalCoins={totalCoins} " +
-                $"loggers={loggers}/{workingLoggers} haulers={haulers}/{workingHaulers} " +
-                $"intents(W/E/S/L)={intentWork}/{intentEat}/{intentSleep}/{intentLeisure} " +
-                $"cratesShipped~={shippedCrates} cratesSold={cratesSold} revDock={revDock} wagesHaul={wagesHaul} profit={profit} " +
-                $"foodPrice={foodPrice} cratePrice={cratePrice}"
-            );
+                $"[TEL] t={world.SimTime:F0}s | W={w} E={e} S={s} L={l} | " +
+                $"queue~{stallQueueCount} | P(food)={foodPrice} P(crate)={cratePrice} | " +
+                $"$ total={totalMoney} (agents={agentCoins}, escrow={escrowCoins}, city={cityCoins})");
         }
     }
 }

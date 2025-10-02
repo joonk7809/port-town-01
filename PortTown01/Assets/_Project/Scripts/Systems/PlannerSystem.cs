@@ -13,7 +13,7 @@ namespace PortTown01.Systems
 
         private const int TICKS_PER_SEC = 20;
 
-        // Need thresholds (0..100 expected; floats to tolerate int/float backing fields)
+        // Need thresholds (0..100)
         private const float FOOD_TRIGGER  = 50f;
         private const float FOOD_CRITICAL = 25f;
         private const float REST_TRIGGER  = 40f;
@@ -42,6 +42,8 @@ namespace PortTown01.Systems
             public Intent Last = Intent.Work;
             public int EatCooldownUntil = 0;
             public int SleepCooldownUntil = 0;
+            // Cache last computed work target so switch block can use it
+            public Vector3 LastWorkTarget;
         }
 
         private readonly Dictionary<int, S> _s = new Dictionary<int, S>();
@@ -49,13 +51,13 @@ namespace PortTown01.Systems
         public void Tick(World world, int tick, float dt)
         {
             var stall  = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.Trading);
-            var mill   = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.Milling);
-            var dock   = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.DockLoading);
-            var forest = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.Logging);
+            var millWs = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.Milling);
+            var dockWs = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.DockLoading);
+            var forestWs = world.Worksites.FirstOrDefault(ws => ws.Type == WorkType.Logging);
 
             foreach (var a in world.Agents)
             {
-                // Skip immobile infrastructure actors
+                // Skip immobile infra actors
                 if (a.SpeedMps <= 0f && !a.IsVendor && !a.IsEmployer) continue;
 
                 if (!_s.TryGetValue(a.Id, out var st))
@@ -65,9 +67,8 @@ namespace PortTown01.Systems
                 var pos   = a.Pos;
                 float speed = Mathf.Max(0.05f, a.SpeedMps);
 
-                // Read needs from flat fields (float-friendly)
-                float food = a.Food;   // expects Agent.Food (float or int)
-                float rest = a.Rest;   // expects Agent.Rest (float or int)
+                float food = a.Food;
+                float rest = a.Rest;
 
                 // Candidate utilities
                 float uWork = float.NegativeInfinity;
@@ -85,15 +86,10 @@ namespace PortTown01.Systems
                     {
                         float travelSec = TravelSeconds(pos, stall.StationPos, speed);
                         float queueSec  = EstimateFoodQueueWaitSec(world, stall, a);
-
                         float expectedRelief = Mathf.Min(30f, 100f - food);
 
                         bool onCooldown = tick < st.EatCooldownUntil;
-                        if (onCooldown && !crit)
-                        {
-                            uEat = float.NegativeInfinity;
-                        }
-                        else
+                        if (!onCooldown || crit)
                         {
                             uEat = U_EAT_BASE
                                    + W_NEED * expectedRelief
@@ -112,11 +108,7 @@ namespace PortTown01.Systems
                     {
                         float travelSec = TravelSeconds(pos, a.HomePos, speed);
                         bool onCooldown = tick < st.SleepCooldownUntil;
-                        if (onCooldown && !crit)
-                        {
-                            uSleep = float.NegativeInfinity;
-                        }
-                        else
+                        if (!onCooldown || crit)
                         {
                             float expectedRelief = Mathf.Min(60f, 100f - rest);
                             float phaseBias = (phase == DayPhase.Sleep) ? 3.0f : 0.0f;
@@ -128,30 +120,34 @@ namespace PortTown01.Systems
                     }
                 }
 
-                // ------- WORK -------
+                // ------- WORK (compute role-aware target ONCE) -------
+                Vector3 workTarget = pos; // default
                 {
-                    Vector3 workPos = pos;
                     switch (a.Role)
                     {
                         case JobRole.Logger:
-                            workPos = forest != null ? forest.StationPos : workPos; break;
+                            if (forestWs != null) workTarget = forestWs.StationPos;
+                            break;
                         case JobRole.Miller:
-                            workPos = mill != null ? mill.StationPos : workPos; break;
+                            if (millWs != null) workTarget = millWs.StationPos;
+                            break;
                         case JobRole.Hauler:
                             int crates = a.Carry.Get(ItemType.Crate);
-                            if (crates > 0 && dock != null) workPos = dock.StationPos;
-                            else if (mill != null) workPos = mill.StationPos;
+                            if (crates > 0 && dockWs != null) workTarget = dockWs.StationPos;
+                            else if (millWs != null) workTarget = millWs.StationPos;
                             break;
                         default:
-                            workPos = NearestOf(pos, forest?.StationPos, mill?.StationPos, dock?.StationPos);
+                            workTarget = NearestOf(pos, forestWs?.StationPos, millWs?.StationPos, dockWs?.StationPos);
                             break;
                     }
 
-                    float travelSec = TravelSeconds(pos, workPos, speed);
+                    float travelSec = TravelSeconds(pos, workTarget, speed);
                     float fatiguePenalty = C_FATIGUE * Mathf.Clamp01((100f - rest) / 100f);
                     float phaseBias = (phase == DayPhase.Work) ? 2.5f : 0.0f;
 
                     uWork = U_WORK_BASE + phaseBias - C_TRAVEL_PER_SEC * travelSec - fatiguePenalty;
+
+                    st.LastWorkTarget = workTarget; // store for the switch below
                 }
 
                 // ------- Choose with hysteresis -------
@@ -171,28 +167,31 @@ namespace PortTown01.Systems
 
                 bool critFood = food <= FOOD_CRITICAL;
                 bool critRest = rest <= REST_CRITICAL;
-
                 if (!critFood && !critRest)
                 {
                     if (bestU < uCurr + SWITCH_MARGIN)
                         bestIntent = st.Last;
                 }
 
-                // Drive movement targets; do not assume an Agent.Intent field exists
+                // ------- Apply targets (with anti-pile dither) -------
                 switch (bestIntent)
                 {
                     case Intent.Eat:
-                        if (stall != null) a.TargetPos = stall.StationPos;
+                        if (stall != null) a.TargetPos = DitherAround(stall.StationPos, a.Id, 0.7f);
                         a.AllowWander = false;
                         break;
+
                     case Intent.Sleep:
-                        a.TargetPos = a.HomePos;
+                        a.TargetPos = a.HomePos; // no dither; homes can be distinct
                         a.AllowWander = false;
                         break;
+
                     case Intent.Work:
-                        a.TargetPos = NearestOf(a.Pos, forest?.StationPos, mill?.StationPos, dock?.StationPos);
+                        // BUGFIX: use the role-aware workTarget we computed (do NOT overwrite with NearestOf again)
+                        a.TargetPos = DitherAround(st.LastWorkTarget, a.Id, 1.0f);
                         a.AllowWander = false;
                         break;
+
                     default:
                         a.AllowWander = true;
                         break;
@@ -232,7 +231,9 @@ namespace PortTown01.Systems
                     others++;
             }
 
-            return others * service + remaining;
+            // One in service; rest waiting
+            int waiting = Mathf.Max(0, others - 1);
+            return waiting * service + remaining;
         }
 
         private static Vector3 NearestOf(Vector3 from, params Vector3?[] candidates)
@@ -246,6 +247,16 @@ namespace PortTown01.Systems
                 if (d < best) { best = d; bestPos = c.Value; }
             }
             return bestPos;
+        }
+
+        private static Vector3 DitherAround(Vector3 center, int agentId, float radius)
+        {
+            // Golden-angle hash for uniform ring placement per agent (deterministic)
+            const float TAU = 6.28318530718f;
+            // hash in [0,1)
+            float h = Mathf.Abs(Mathf.Sin(agentId * 12.9898f + 78.233f)) % 1f;
+            float ang = h * TAU;
+            return center + new Vector3(Mathf.Cos(ang), 0f, Mathf.Sin(ang)) * radius;
         }
     }
 }

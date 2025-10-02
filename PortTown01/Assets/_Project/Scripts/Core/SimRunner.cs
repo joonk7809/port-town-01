@@ -67,6 +67,7 @@ namespace PortTown01.Core
                 new EmploymentSystem(),
 
                 new PlannerSystem(),
+                new ResourceRegenSystem(),
 
                 new DemoHarvestSystem(),
                 new FoodTradeSystem(),
@@ -200,9 +201,9 @@ namespace PortTown01.Core
                 Id = 0,
                 Type = NodeType.Forest,
                 Pos = new Vector3(-20f, 0f, 0f),
-                Stock = 100,
-                MaxStock = 100,
-                RegenPerSec = 0f
+                    Stock = 1500,
+                    MaxStock = 5000,
+                    RegenPerSec = 0.5f
             };
             _world.ResourceNodes.Add(forest);
 
