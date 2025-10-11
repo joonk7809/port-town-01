@@ -18,13 +18,11 @@ namespace PortTown01.Systems
         public int fontSize = 14;
         public float panelWidth = 460f;
 
-        // refs
         private SimRunner _runner;
         private World _world;
 
         // 1 Hz sampler
         private float _accum;
-        private bool _hasBaseline;
 
         // snapshots for residual calc
         private long _prevTotalMoney = long.MinValue;
@@ -32,26 +30,23 @@ namespace PortTown01.Systems
         private long _prevOutflow;
 
         // per-pool snapshots for ΔA/ΔE/ΔC
-        private int _prevAgents;
-        private int _prevEscrow;
-        private int _prevCity;
+        private int _prevAgents = int.MinValue;
+        private int _prevEscrow = int.MinValue;
+        private int _prevCity   = int.MinValue;
 
-        // current display values
+        // display values
         private int  _agentsCoins, _escrowCoins, _cityCoins;
         private long _totalMoney, _dIn, _dOut, _residual;
         private int  _dA, _dE, _dC;
         private int  _foodPrice, _cratePrice;
 
+        // GUI styles (init lazily inside OnGUI to avoid GUI calls in Awake)
         private GUIStyle _label, _labelBad, _header;
 
         private void Awake()
         {
             _runner = FindObjectOfType<SimRunner>();
             if (_runner != null) _world = _runner.WorldRef;
-
-            _label = new GUIStyle(GUI.skin.label) { fontSize = fontSize, normal = { textColor = Color.white } };
-            _labelBad = new GUIStyle(_label)      { normal = { textColor = new Color(1f, 0.4f, 0.4f) } };
-            _header = new GUIStyle(_label)        { fontStyle = FontStyle.Bold, fontSize = fontSize + 1 };
         }
 
         private void Update()
@@ -105,23 +100,28 @@ namespace PortTown01.Systems
             _cratePrice = Mathf.Max(1, _world.CratePrice);
         }
 
+        private void EnsureStyles()
+        {
+            if (_label != null) return;
+            _label = new GUIStyle(GUI.skin.label) { fontSize = fontSize, normal = { textColor = Color.white } };
+            _labelBad = new GUIStyle(_label) { normal = { textColor = new Color(1f, 0.4f, 0.4f) } };
+            _header = new GUIStyle(_label) { fontStyle = FontStyle.Bold, fontSize = fontSize + 1 };
+        }
+
         private void OnGUI()
         {
             if (!show || _world == null) return;
+            EnsureStyles();
 
-            float x = 10f, y = 10f, line = fontSize + 6f;
-            Rect r = new Rect(x, y, panelWidth, 9999f);
-            GUILayout.BeginArea(r, GUI.skin.box);
+            GUILayout.BeginArea(new Rect(10f, 10f, panelWidth, 9999f), GUI.skin.box);
             GUILayout.Label($"Port Town Telemetry — t={_world.SimTime:F1}s", _header);
 
-            // Money integrity
             GUILayout.Label("Money Integrity (per-second)", _header);
             GUILayout.Label($"Agents={_agentsCoins} | Escrow={_escrowCoins} | City={_cityCoins} | Total={_totalMoney}", _label);
             GUILayout.Label($"ΔA={_dA} | ΔE={_dE} | ΔC={_dC} | ΔIn={_dIn} | ΔOut={_dOut}", _label);
             var lbl = (_residual == 0) ? _label : _labelBad;
             GUILayout.Label($"Residual={_residual}", lbl);
 
-            // Prices (context)
             GUILayout.Space(6f);
             GUILayout.Label($"Prices: Food={_foodPrice} | Crate={_cratePrice}", _label);
 
