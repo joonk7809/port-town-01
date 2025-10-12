@@ -8,22 +8,19 @@ using PortTown01.Econ;
 namespace PortTown01.Systems
 {
     // Verifies conservation of money/items given external sinks/sources,
-    // checks negatives, and detects "stuck" production.
+    // checks negatives, and detects "stuck" production (quiet, reasoned).
     public class AuditSystem : ISimSystem
     {
         public string Name => "Audit";
 
         // --- Tunables ---
         private const float STUCK_WINDOW_SEC = 10.0f;
-        private static readonly bool VERBOSE_OK_SUMMARY = false; // runtime flag; avoids CS0162
         private const int   MONEY_RESIDUAL_TOLERANCE = 0; // integer coins; 0 tolerance expected
 
         // --- Incremental reconciliation state (money) ---
-        // agents + escrow + CityBudget at last audit step
-        private long _prevTotalMoney = long.MinValue;
-        // external mint/burn at last audit step
-        private long _prevInflow  = 0;
-        private long _prevOutflow = 0;
+        private long _prevTotalMoney = long.MinValue; // agents + escrow + CityBudget at last audit step
+        private long _prevInflow  = 0;                // external mint
+        private long _prevOutflow = 0;                // external burn
 
         // --- Per-pool snapshots to compute component deltas (ΔA/ΔE/ΔC) ---
         private int _prevAgentCoinsSum  = int.MinValue;
@@ -35,6 +32,11 @@ namespace PortTown01.Systems
         private int    _prevMillLogs    = int.MinValue;
         private int    _prevMillPlanks  = int.MinValue;
         private double _lastChangeSimTime = 0.0;
+        private bool   _stuckEventNoted = false; // log once per "no-change" episode until flow resumes
+
+        // Optional verbose logger compiled only if AUDIT_VERBOSE is defined
+        [System.Diagnostics.Conditional("AUDIT_VERBOSE")]
+        private static void V(string msg) => UnityEngine.Debug.Log(msg);
 
         public void Tick(World world, int tick, float dt)
         {
@@ -42,13 +44,10 @@ namespace PortTown01.Systems
             if (!SimTicks.Every1Hz(tick)) return;
 
             // ---------- 1) MONEY CONSERVATION (incremental, integer-coins) ----------
-
-            // Pool tallies
             int agentCoins  = world.Agents.Sum(a => a.Coins);
-            int escrowCoins = world.FoodBook.Bids.Where(b => b.Qty > 0).Sum(b => b.EscrowCoins); // coin escrow is bid-side
+            int escrowCoins = world.FoodBook?.Bids.Where(b => b.Qty > 0).Sum(b => b.EscrowCoins) ?? 0;
             int cityCoins   = world.CityBudget;
 
-            // Component deltas (first observed step => 0)
             int dA = (_prevAgentCoinsSum  == int.MinValue) ? 0 : (agentCoins  - _prevAgentCoinsSum);
             int dE = (_prevEscrowCoinsSum == int.MinValue) ? 0 : (escrowCoins - _prevEscrowCoinsSum);
             int dC = (_prevCityCoinsSum   == int.MinValue) ? 0 : (cityCoins   - _prevCityCoinsSum);
@@ -57,106 +56,79 @@ namespace PortTown01.Systems
             long inflow       = world.CoinsExternalInflow;
             long outflow      = world.CoinsExternalOutflow;
 
-            long expectedNow;
             if (_prevTotalMoney == long.MinValue)
             {
-                // Establish baselines on first observation
                 _prevTotalMoney = currentTotal;
                 _prevInflow     = inflow;
                 _prevOutflow    = outflow;
-
-                expectedNow     = currentTotal;
-
-                Debug.Log($"[AUDIT] Baseline coins set: total={currentTotal} (agents={agentCoins}, escrow={escrowCoins}, city={cityCoins})");
+                V($"[AUDIT] Baseline coins set: total={currentTotal} (agents={agentCoins}, escrow={escrowCoins}, city={cityCoins})");
             }
             else
             {
                 long dIn  = inflow  - _prevInflow;
                 long dOut = outflow - _prevOutflow;
 
-                expectedNow = _prevTotalMoney + (dIn - dOut);
-                long residual = currentTotal - expectedNow;
+                long expectedNow = _prevTotalMoney + (dIn - dOut);
+                long residual    = currentTotal - expectedNow;
 
                 if (Math.Abs(residual) > MONEY_RESIDUAL_TOLERANCE)
                 {
-                    Debug.LogError(
+                    UnityEngine.Debug.LogError(
                         $"[AUDIT][MONEY] Non-conservation: now={currentTotal} expected={expectedNow} residual={residual} @tick {tick} | " +
                         $"ΔA={dA}, ΔE={dE}, ΔC={dC} | step Δin={dIn}, Δout={dOut} | prevTotal={_prevTotalMoney}, inflowCum={inflow}, outflowCum={outflow}");
-                    // Track worst absolute residual in World (int-bounded)
                     int absRes = (int)Math.Min(int.MaxValue, Math.Abs(residual));
                     world.MoneyResidualAbsMax = Math.Max(world.MoneyResidualAbsMax, absRes);
                 }
 
-                // Advance snapshots
                 _prevTotalMoney = currentTotal;
                 _prevInflow     = inflow;
                 _prevOutflow    = outflow;
             }
 
-            // Advance per-pool snapshots (always, including baseline tick)
             _prevAgentCoinsSum  = agentCoins;
             _prevEscrowCoinsSum = escrowCoins;
             _prevCityCoinsSum   = cityCoins;
 
-            if (VERBOSE_OK_SUMMARY)
-            {
-                Debug.Log($"[AUDIT][OK] moneyNow={currentTotal} " +
-                          $"(agents={agentCoins}, escrow={escrowCoins}, city={cityCoins})");
-            }
-
             // ---------- 2) NEGATIVE COIN CHECKS ----------
-            if (cityCoins < 0)
-                Debug.LogError($"[AUDIT][MONEY] CityBudget negative: {cityCoins}");
-
+            if (cityCoins < 0) UnityEngine.Debug.LogError($"[AUDIT][MONEY] CityBudget negative: {cityCoins}");
             foreach (var a in world.Agents)
-            {
                 if (a.Coins < 0)
-                    Debug.LogError($"[AUDIT][MONEY] Agent#{a.Id} has negative coins: {a.Coins}");
-            }
-            foreach (var bid in world.FoodBook.Bids.Where(o => o.Qty > 0))
-            {
+                    UnityEngine.Debug.LogError($"[AUDIT][MONEY] Agent#{a.Id} has negative coins: {a.Coins}");
+            foreach (var bid in world.FoodBook?.Bids.Where(o => o.Qty > 0) ?? Enumerable.Empty<Offer>())
                 if (bid.EscrowCoins < 0)
-                    Debug.LogError($"[AUDIT][MONEY] Bid#{bid.Id} has negative escrow coins: {bid.EscrowCoins}");
-            }
+                    UnityEngine.Debug.LogError($"[AUDIT][MONEY] Bid#{bid.Id} has negative escrow coins: {bid.EscrowCoins}");
 
-            // ---------- 3) ITEM NEGATIVES + ESCROW (type-aware, no cross-type conservation) ----------
+            // ---------- 3) ITEM NEGATIVES + ESCROW ----------
             var itemTotals = new Dictionary<ItemType, int>();
             foreach (ItemType it in Enum.GetValues(typeof(ItemType))) itemTotals[it] = 0;
 
-            // agents
             foreach (var a in world.Agents)
             {
                 foreach (var kv in a.Carry.Items)
                 {
                     if (kv.Value < 0)
-                        Debug.LogError($"[AUDIT][ITEM] Agent#{a.Id} has negative {kv.Key}: {kv.Value}");
+                        UnityEngine.Debug.LogError($"[AUDIT][ITEM] Agent#{a.Id} has negative {kv.Key}: {kv.Value}");
                     itemTotals[kv.Key] += Math.Max(0, kv.Value);
                 }
             }
-            // buildings
             foreach (var b in world.Buildings)
             {
                 foreach (var kv in b.Storage.Items)
                 {
                     if (kv.Value < 0)
-                        Debug.LogError($"[AUDIT][ITEM] Building#{b.Id} has negative {kv.Key}: {kv.Value}");
+                        UnityEngine.Debug.LogError($"[AUDIT][ITEM] Building#{b.Id} has negative {kv.Key}: {kv.Value}");
                     itemTotals[kv.Key] += Math.Max(0, kv.Value);
                 }
             }
-            // asks escrow (Food only right now)
-            int escrowFood = world.FoodBook.Asks.Where(o => o.Item == ItemType.Food && o.Qty > 0)
-                                                .Sum(o => o.EscrowItems);
+            int escrowFood = world.FoodBook?.Asks.Where(o => o.Item == ItemType.Food && o.Qty > 0).Sum(o => o.EscrowItems) ?? 0;
             if (escrowFood < 0)
-                Debug.LogError($"[AUDIT][ITEM] Ask escrow negative for Food: {escrowFood}");
+                UnityEngine.Debug.LogError($"[AUDIT][ITEM] Ask escrow negative for Food: {escrowFood}");
             itemTotals[ItemType.Food] += Math.Max(0, escrowFood);
 
-            // Optionally expose a simple "worst negative seen" KPI for items (no cross-type conservation here)
-            // world.ItemResidualAbsMax = Math.Max(world.ItemResidualAbsMax, 0); // hook when you add it
-
-            // ---------- 4) STUCK DETECTION ----------
+            // ---------- 4) STUCK DETECTION (reasoned, once-per-episode) ----------
             int forestStock = world.ResourceNodes.Count > 0 ? world.ResourceNodes[0].Stock : 0;
-            int millLogs    = world.Buildings.Count > 0 ? world.Buildings[0].Storage.Get(ItemType.Log)   : 0;
-            int millPlanks  = world.Buildings.Count > 0 ? world.Buildings[0].Storage.Get(ItemType.Plank) : 0;
+            int millLogs    = world.Buildings.Count  > 0 ? world.Buildings[0].Storage.Get(ItemType.Log)   : 0;
+            int millPlanks  = world.Buildings.Count  > 0 ? world.Buildings[0].Storage.Get(ItemType.Plank) : 0;
 
             bool changed = (forestStock != _prevForestStock) ||
                            (millLogs    != _prevMillLogs)    ||
@@ -168,15 +140,35 @@ namespace PortTown01.Systems
                 _prevMillLogs      = millLogs;
                 _prevMillPlanks    = millPlanks;
                 _lastChangeSimTime = world.SimTime;
+                _stuckEventNoted   = false; // new flow; next stall should log again once
             }
             else
             {
                 double idleFor = world.SimTime - _lastChangeSimTime;
-                bool haveLoggers = world.Agents.Any(a => a.Role == JobRole.Logger);
-                if (idleFor >= STUCK_WINDOW_SEC && haveLoggers)
+                if (idleFor >= STUCK_WINDOW_SEC)
                 {
-                    Debug.LogWarning($"[AUDIT][STUCK] No production change for ~{idleFor:F1}s " +
-                                     $"(forest={forestStock}, millLogs={millLogs}, planks={millPlanks}).");
+                    bool haveLoggers = world.Agents.Any(a => a.Role == JobRole.Logger);
+                    var forestNode   = world.ResourceNodes.Count > 0 ? world.ResourceNodes[0] : null;
+
+                    if (haveLoggers && !_stuckEventNoted)
+                    {
+                        if (forestNode != null && forestNode.Stock <= 0)
+                        {
+                            if (forestNode.RegenPerSec <= 0f)
+                                UnityEngine.Debug.LogWarning("[AUDIT][STALL] Forest exhausted (RegenPerSec=0). Production halted by design until configuration changes.");
+                            else
+                                UnityEngine.Debug.Log($"[AUDIT][STALL] Upstream empty; waiting for regen (RegenPerSec={forestNode.RegenPerSec:F2}).");
+
+                            _stuckEventNoted = true; // log once for this no-change episode
+                        }
+                        else
+                        {
+                            UnityEngine.Debug.LogWarning($"[AUDIT][STUCK] No production change for ~{idleFor:F1}s (forest={forestStock}, millLogs={millLogs}, planks={millPlanks}).");
+                            _stuckEventNoted = true;
+                        }
+                    }
+
+                    // advance the window so we don't re-log every second even if _stuckEventNoted was false this time
                     _lastChangeSimTime = world.SimTime;
                 }
             }

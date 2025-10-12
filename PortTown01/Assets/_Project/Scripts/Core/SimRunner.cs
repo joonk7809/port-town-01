@@ -56,6 +56,12 @@ namespace PortTown01.Core
 
             _world = new World();
 
+            _world.Food_Q = 20;          // batch size
+            _world.Food_s = 120;         // reorder point (inv+escrow)
+            _world.Food_S = 360;         // order-up-to level
+            _world.FoodWholesale = 3.0f; // unit wholesale cost (coins)
+            _world.FoodLeadTimeSec = 10f;
+
             _pipeline = new List<ISimSystem>
             {
                 // Must run first so scripted shocks apply before controllers/markets
@@ -177,6 +183,11 @@ namespace PortTown01.Core
                 _world.Agents.Add(a);
                 a.HomePos = new Vector3(Random.Range(-6f, 6f), 0f, Random.Range(14f, 24f));
 
+                a.Food = Random.Range(70f, 100f);
+                a.Rest = Random.Range(60f, 100f);
+
+                a.Coins = 100;
+
                 // Optional: spawn a tiny visual so you can see motion
                 SpawnView(a);
                 SpawnMarker(a.HomePos, new Color(0.4f,0.4f,1f,0.6f), $"Home_{a.Id}");
@@ -256,6 +267,7 @@ namespace PortTown01.Core
                 AllowWander = false
             };
             vendor.Carry.Add(ItemType.Food, 200);
+            vendor.Coins = 1500;
             _world.Agents.Add(vendor);
             SpawnView(vendor);
             SpawnMarker(vendor.Pos, Color.red, "Market");
@@ -271,7 +283,7 @@ namespace PortTown01.Core
                 InUse = false,
                 OccupantId = null,
                 ServiceRemainingSec = 0f,
-                ServiceDurationSec = 1.2f
+                ServiceDurationSec = 0.7f
             });
 
             var boss = new Agent
